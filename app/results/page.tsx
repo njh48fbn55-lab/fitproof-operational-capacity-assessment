@@ -25,6 +25,33 @@ function List({ items }: { items: string[] }) {
   );
 }
 
+function ScoreTable({ items }: { items: Array<{ dimension: string; points: number; maxPoints: number; rationale: string }> }) {
+  return (
+    <div className="max-w-full overflow-x-auto">
+      <table className="w-full min-w-[680px] border-collapse text-left text-sm">
+        <thead>
+          <tr className="border-b border-line bg-cream text-xs uppercase tracking-[0.12em] text-slate">
+            <th className="py-3 pr-4">Dimension</th>
+            <th className="py-3 pr-4">Score</th>
+            <th className="py-3 pr-4">Weight</th>
+            <th className="py-3">Rationale</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item) => (
+            <tr key={item.dimension} className="border-b border-line/80 last:border-b-0">
+              <td className="py-4 pr-4 font-semibold text-ink">{item.dimension}</td>
+              <td className="py-4 pr-4 tabular-nums text-ink">{item.points}</td>
+              <td className="py-4 pr-4 tabular-nums text-slate">{item.maxPoints}</td>
+              <td className="py-4 leading-6 text-slate">{item.rationale}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 export default function ResultsPage() {
   const [assessment, setAssessment] = useState<AssessmentInput>(emptyAssessment);
   const [hasSaved, setHasSaved] = useState(false);
@@ -78,7 +105,7 @@ export default function ResultsPage() {
               </p>
             </div>
             <div className="rounded border border-blue-100 bg-blue-50 p-5 text-center">
-              <p className="text-xs font-bold uppercase tracking-[0.14em] text-moss">Market Readiness Score</p>
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-moss">Total Market Readiness Score</p>
               <p className="mt-3 text-6xl font-bold tracking-tight text-ink">{report.total}</p>
               <p className="mt-3 text-sm font-bold text-copper">{report.maturityLabel}</p>
             </div>
@@ -87,8 +114,8 @@ export default function ResultsPage() {
           <div className="mt-6 grid gap-4 sm:grid-cols-3">
             {[
               ["Maturity Label", report.maturityLabel],
-              ["Stage", assessment.stage],
-              ["Geography", assessment.geography || "Not specified"]
+              ["Positive Score Subtotal", `${report.positiveScore}/100`],
+              ["Penalty Subtotal", `${report.penaltyScore}/-40`]
             ].map(([label, value]) => (
               <div key={label} className="rounded border border-line bg-paper p-4 shadow-soft">
                 <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate">{label}</p>
@@ -99,32 +126,39 @@ export default function ResultsPage() {
 
           <div className="mt-6 grid gap-4">
             <Section title="Score Breakdown Table">
-              <div className="max-w-full overflow-x-auto">
-                <table className="w-full min-w-[680px] border-collapse text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-line bg-cream text-xs uppercase tracking-[0.12em] text-slate">
-                      <th className="py-3 pr-4">Dimension</th>
-                      <th className="py-3 pr-4">Score</th>
-                      <th className="py-3 pr-4">Weight</th>
-                      <th className="py-3">Rationale</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {report.breakdown.map((item) => (
-                      <tr key={item.dimension} className="border-b border-line/80 last:border-b-0">
-                        <td className="py-4 pr-4 font-semibold text-ink">{item.dimension}</td>
-                        <td className="py-4 pr-4 tabular-nums text-ink">{item.points}</td>
-                        <td className="py-4 pr-4 tabular-nums text-slate">{item.maxPoints}</td>
-                        <td className="py-4 leading-6 text-slate">{item.rationale}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <p className="mb-4 text-sm leading-6 text-slate">
+                Positive dimensions measure venture attractiveness. Penalty dimensions are risk adjustments, not failures; they keep crowded, mature, low-differentiation categories from scoring too generously.
+              </p>
+              <div className="grid gap-6">
+                <div>
+                  <h3 className="mb-3 text-sm font-bold text-ink">Positive dimensions</h3>
+                  <ScoreTable items={report.positiveBreakdown} />
+                </div>
+                <div>
+                  <h3 className="mb-3 text-sm font-bold text-ink">Penalty risk adjustments</h3>
+                  <ScoreTable items={report.penaltyBreakdown} />
+                </div>
               </div>
             </Section>
 
             <Section title="Executive Summary">
               <p className="text-base leading-7">{report.executiveSummary}</p>
+            </Section>
+
+            <Section title="Investor-Readiness Conclusion">
+              <p className="text-base leading-7">{report.investorReadinessConclusion}</p>
+            </Section>
+
+            <Section title="Top 3 Strengths">
+              <List items={report.topStrengths} />
+            </Section>
+
+            <Section title="Top 3 Risks">
+              <List items={report.topRisks} />
+            </Section>
+
+            <Section title="Recommended Actions To Improve Score">
+              <List items={report.recommendedActions} />
             </Section>
 
             <Section title="ICP Hypotheses">

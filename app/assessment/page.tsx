@@ -25,10 +25,48 @@ const fields: Array<{
   { name: "existingEvidence", label: "Existing evidence", type: "textarea", placeholder: "Interview counts, LOIs, waitlist, paid pilots, usage, revenue, retention, investor/customer pull" },
   { name: "competitors", label: "Competitors", type: "textarea", placeholder: "Direct tools, indirect substitutes, services firms, internal build" },
   { name: "geography", label: "Geography", placeholder: "US mid-market, EU fintech, global English-speaking SMBs" },
-  { name: "stage", label: "Stage", type: "select" }
+  { name: "stage", label: "Stage", type: "select" },
+  { name: "founderMarketFit", label: "Founder-market fit", type: "textarea", placeholder: "Relevant domain experience, unfair access, founder network, distribution advantage, or proprietary insight" }
 ];
 
 const stages: AssessmentInput["stage"][] = ["Idea", "Prototype", "Private beta", "Public beta", "Pre-seed", "Seed"];
+
+type ManualIcpInput = {
+  segment: string;
+  verticals: string;
+  excludedVerticals: string;
+  description: string;
+  economicBuyer: string;
+  endUser: string;
+  buyingTrigger: string;
+  reasoning: string;
+  currentAlternatives: string;
+  validationQuestions: string;
+  recommendedDiscoveryMotion: string;
+  confidence: IcpSuggestion["confidence"];
+};
+
+const emptyManualIcp: ManualIcpInput = {
+  segment: "",
+  verticals: "",
+  excludedVerticals: "",
+  description: "",
+  economicBuyer: "",
+  endUser: "",
+  buyingTrigger: "",
+  reasoning: "",
+  currentAlternatives: "",
+  validationQuestions: "",
+  recommendedDiscoveryMotion: "",
+  confidence: "Exploratory"
+};
+
+function splitManualList(value: string) {
+  return value
+    .split(/[,;\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
 
 export default function AssessmentPage() {
   const router = useRouter();
@@ -36,10 +74,14 @@ export default function AssessmentPage() {
   const [researchResults, setResearchResults] = useState<CompetitorResearchResult[]>([]);
   const [selectedResearchIds, setSelectedResearchIds] = useState<string[]>([]);
   const [icpSuggestions, setIcpSuggestions] = useState<IcpSuggestion[]>([]);
+  const [areIcpSuggestionsCollapsed, setAreIcpSuggestionsCollapsed] = useState(false);
+  const [isManualIcpOpen, setIsManualIcpOpen] = useState(false);
+  const [manualIcp, setManualIcp] = useState<ManualIcpInput>(emptyManualIcp);
   const [isResearching, setIsResearching] = useState(false);
   const [isSuggestingIcps, setIsSuggestingIcps] = useState(false);
   const [researchError, setResearchError] = useState("");
   const [icpError, setIcpError] = useState("");
+  const [icpNotice, setIcpNotice] = useState("");
 
   useEffect(() => {
     const saved = window.localStorage.getItem(storageKey);
@@ -66,6 +108,11 @@ export default function AssessmentPage() {
     setForm((current) => ({ ...current, [name]: value }));
   }
 
+  function updateManualIcp(event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) {
+    const { name, value } = event.target;
+    setManualIcp((current) => ({ ...current, [name]: value }));
+  }
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     window.localStorage.setItem(storageKey, JSON.stringify(form));
@@ -77,8 +124,12 @@ export default function AssessmentPage() {
     setResearchResults([]);
     setSelectedResearchIds([]);
     setIcpSuggestions([]);
+    setAreIcpSuggestionsCollapsed(false);
+    setIsManualIcpOpen(false);
+    setManualIcp(emptyManualIcp);
     setResearchError("");
     setIcpError("");
+    setIcpNotice("");
     window.localStorage.removeItem(storageKey);
     window.localStorage.removeItem(competitorResearchStorageKey);
     window.localStorage.removeItem(icpSuggestionStorageKey);
@@ -87,6 +138,7 @@ export default function AssessmentPage() {
   async function suggestIcps() {
     setIsSuggestingIcps(true);
     setIcpError("");
+    setIcpNotice("");
 
     try {
       const response = await fetch("/api/suggest-icps", {
@@ -95,11 +147,13 @@ export default function AssessmentPage() {
         body: JSON.stringify(form)
       });
 
-      const data = (await response.json()) as { suggestions?: IcpSuggestion[]; error?: string };
+      const data = (await response.json()) as { suggestions?: IcpSuggestion[]; error?: string; notice?: string };
       if (!response.ok) throw new Error(data.error || "ICP suggestion failed.");
 
       const suggestions = data.suggestions || [];
       setIcpSuggestions(suggestions);
+      setAreIcpSuggestionsCollapsed(false);
+      setIcpNotice(data.notice || "");
       window.localStorage.setItem(icpSuggestionStorageKey, JSON.stringify(suggestions));
       if (!suggestions.length) {
         setIcpError("No ICP suggestions were generated. Add a clearer product description, problem, or market category.");
@@ -120,6 +174,63 @@ export default function AssessmentPage() {
 
     setForm(nextForm);
     window.localStorage.setItem(storageKey, JSON.stringify(nextForm));
+  }
+
+  function removeIcpSuggestion(id: string) {
+    const nextSuggestions = icpSuggestions.filter((suggestion) => suggestion.id !== id);
+    setIcpSuggestions(nextSuggestions);
+    window.localStorage.setItem(icpSuggestionStorageKey, JSON.stringify(nextSuggestions));
+    if (!nextSuggestions.length) setAreIcpSuggestionsCollapsed(false);
+  }
+
+  function addManualIcp() {
+    const segment = manualIcp.segment.trim() || form.targetCustomer.trim();
+    const description = manualIcp.description.trim();
+    const reasoning = manualIcp.reasoning.trim() || "Manually entered ICP hypothesis to validate through discovery.";
+
+    if (!segment || !description) {
+      setIcpError("Add at least an ICP segment and description before saving a manual ICP.");
+      setIsManualIcpOpen(true);
+      return;
+    }
+
+    const validationQuestions = splitManualList(manualIcp.validationQuestions);
+    const currentAlternatives = splitManualList(manualIcp.currentAlternatives || form.currentAlternatives);
+    const economicBuyer = manualIcp.economicBuyer.trim() || form.economicBuyer.trim() || "Economic buyer to validate";
+    const nextSuggestion: IcpSuggestion = {
+      id: `manual-icp-${Date.now()}`,
+      segment,
+      verticals: splitManualList(manualIcp.verticals),
+      excludedVerticals: splitManualList(manualIcp.excludedVerticals),
+      description,
+      economicBuyer,
+      endUser: manualIcp.endUser.trim() || "Primary user to validate",
+      buyingTrigger: manualIcp.buyingTrigger.trim() || "Buying trigger to validate",
+      reasoning,
+      painIntensityReasoning: "",
+      budgetReasoning: economicBuyer === "Economic buyer to validate" ? "" : `Budget logic should be validated with ${economicBuyer}.`,
+      urgencyReasoning: manualIcp.buyingTrigger.trim() ? `Urgency should be tested around: ${manualIcp.buyingTrigger.trim()}` : "",
+      reachabilityReasoning: "",
+      currentAlternatives,
+      whyItFits: reasoning,
+      whyNotOthers: manualIcp.excludedVerticals.trim()
+        ? "Excluded segments were manually marked as lower-priority early markets."
+        : "",
+      validationQuestions,
+      validationQuestion: validationQuestions[0] || "What evidence would validate or kill this ICP?",
+      recommendedDiscoveryMotion:
+        manualIcp.recommendedDiscoveryMotion.trim() ||
+        "Run discovery interviews with this ICP and compare severity, budget ownership, urgency, and switching intent.",
+      confidence: manualIcp.confidence
+    };
+    const nextSuggestions = [...icpSuggestions, nextSuggestion];
+
+    setIcpSuggestions(nextSuggestions);
+    setAreIcpSuggestionsCollapsed(false);
+    setManualIcp(emptyManualIcp);
+    setIcpError("");
+    setIcpNotice("Manual ICP saved locally.");
+    window.localStorage.setItem(icpSuggestionStorageKey, JSON.stringify(nextSuggestions));
   }
 
   async function researchCompetitors() {
@@ -265,36 +376,361 @@ export default function AssessmentPage() {
                         </button>
                       </div>
 
+                      <div className="rounded border border-line bg-paper p-4">
+                        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                          <div>
+                            <p className="text-sm font-bold text-ink">Manual ICP</p>
+                            <p className="mt-1 text-sm leading-6 text-slate">
+                              Add a founder-defined segment with verticals, reasoning, exclusions, and validation questions.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setIsManualIcpOpen((current) => !current)}
+                            className="w-fit rounded border border-line bg-paper px-4 py-2.5 text-sm font-bold text-ink transition hover:border-moss hover:text-moss"
+                          >
+                            {isManualIcpOpen ? "Close manual ICP" : "Add ICP manually"}
+                          </button>
+                        </div>
+
+                        {isManualIcpOpen && (
+                          <div className="mt-4 grid gap-4">
+                            <div className="grid gap-4 sm:grid-cols-2">
+                              <div className="grid gap-2">
+                                <label htmlFor="manual-icp-segment" className="text-xs font-bold uppercase tracking-[0.12em] text-slate">
+                                  ICP segment
+                                </label>
+                                <input
+                                  id="manual-icp-segment"
+                                  name="segment"
+                                  value={manualIcp.segment}
+                                  onChange={updateManualIcp}
+                                  placeholder="Series A vertical SaaS companies with RevOps teams"
+                                  className="rounded border border-line bg-paper px-3 py-2.5 text-sm text-ink outline-none transition placeholder:text-slate/50 focus:border-moss focus:ring-4 focus:ring-moss/10"
+                                />
+                              </div>
+                              <div className="grid gap-2">
+                                <label htmlFor="manual-icp-confidence" className="text-xs font-bold uppercase tracking-[0.12em] text-slate">
+                                  Confidence
+                                </label>
+                                <select
+                                  id="manual-icp-confidence"
+                                  name="confidence"
+                                  value={manualIcp.confidence}
+                                  onChange={updateManualIcp}
+                                  className="rounded border border-line bg-paper px-3 py-2.5 text-sm text-ink outline-none transition focus:border-moss focus:ring-4 focus:ring-moss/10"
+                                >
+                                  <option value="High">High</option>
+                                  <option value="Medium">Medium</option>
+                                  <option value="Exploratory">Exploratory</option>
+                                </select>
+                              </div>
+                            </div>
+                            <div className="grid gap-2">
+                              <label htmlFor="manual-icp-description" className="text-xs font-bold uppercase tracking-[0.12em] text-slate">
+                                Description
+                              </label>
+                              <textarea
+                                id="manual-icp-description"
+                                name="description"
+                                value={manualIcp.description}
+                                onChange={updateManualIcp}
+                                rows={3}
+                                placeholder="Who they are, what they are trying to accomplish, and why the pain is concentrated here."
+                                className="min-h-24 rounded border border-line bg-paper px-3 py-2.5 text-sm text-ink outline-none transition placeholder:text-slate/50 focus:border-moss focus:ring-4 focus:ring-moss/10"
+                              />
+                            </div>
+                            <div className="grid gap-4 sm:grid-cols-2">
+                              <div className="grid gap-2">
+                                <label htmlFor="manual-icp-verticals" className="text-xs font-bold uppercase tracking-[0.12em] text-slate">
+                                  Verticals
+                                </label>
+                                <textarea
+                                  id="manual-icp-verticals"
+                                  name="verticals"
+                                  value={manualIcp.verticals}
+                                  onChange={updateManualIcp}
+                                  rows={3}
+                                  placeholder="B2B SaaS, logistics, healthcare operations"
+                                  className="min-h-24 rounded border border-line bg-paper px-3 py-2.5 text-sm text-ink outline-none transition placeholder:text-slate/50 focus:border-moss focus:ring-4 focus:ring-moss/10"
+                                />
+                              </div>
+                              <div className="grid gap-2">
+                                <label htmlFor="manual-icp-exclusions" className="text-xs font-bold uppercase tracking-[0.12em] text-slate">
+                                  Exclusions
+                                </label>
+                                <textarea
+                                  id="manual-icp-exclusions"
+                                  name="excludedVerticals"
+                                  value={manualIcp.excludedVerticals}
+                                  onChange={updateManualIcp}
+                                  rows={3}
+                                  placeholder="Very small SMBs, long-cycle enterprise buyers, consumer markets"
+                                  className="min-h-24 rounded border border-line bg-paper px-3 py-2.5 text-sm text-ink outline-none transition placeholder:text-slate/50 focus:border-moss focus:ring-4 focus:ring-moss/10"
+                                />
+                              </div>
+                            </div>
+                            <div className="grid gap-2">
+                              <label htmlFor="manual-icp-reasoning" className="text-xs font-bold uppercase tracking-[0.12em] text-slate">
+                                Reasoning
+                              </label>
+                              <textarea
+                                id="manual-icp-reasoning"
+                                name="reasoning"
+                                value={manualIcp.reasoning}
+                                onChange={updateManualIcp}
+                                rows={3}
+                                placeholder="Why this ICP has stronger pain, urgency, budget, reachability, or switching intent than broader alternatives."
+                                className="min-h-24 rounded border border-line bg-paper px-3 py-2.5 text-sm text-ink outline-none transition placeholder:text-slate/50 focus:border-moss focus:ring-4 focus:ring-moss/10"
+                              />
+                            </div>
+                            <div className="grid gap-4 sm:grid-cols-2">
+                              <div className="grid gap-2">
+                                <label htmlFor="manual-icp-buyer" className="text-xs font-bold uppercase tracking-[0.12em] text-slate">
+                                  Economic buyer
+                                </label>
+                                <input
+                                  id="manual-icp-buyer"
+                                  name="economicBuyer"
+                                  value={manualIcp.economicBuyer}
+                                  onChange={updateManualIcp}
+                                  placeholder="VP Operations"
+                                  className="rounded border border-line bg-paper px-3 py-2.5 text-sm text-ink outline-none transition placeholder:text-slate/50 focus:border-moss focus:ring-4 focus:ring-moss/10"
+                                />
+                              </div>
+                              <div className="grid gap-2">
+                                <label htmlFor="manual-icp-user" className="text-xs font-bold uppercase tracking-[0.12em] text-slate">
+                                  End user
+                                </label>
+                                <input
+                                  id="manual-icp-user"
+                                  name="endUser"
+                                  value={manualIcp.endUser}
+                                  onChange={updateManualIcp}
+                                  placeholder="Operations managers"
+                                  className="rounded border border-line bg-paper px-3 py-2.5 text-sm text-ink outline-none transition placeholder:text-slate/50 focus:border-moss focus:ring-4 focus:ring-moss/10"
+                                />
+                              </div>
+                            </div>
+                            <div className="grid gap-4 sm:grid-cols-2">
+                              <div className="grid gap-2">
+                                <label htmlFor="manual-icp-trigger" className="text-xs font-bold uppercase tracking-[0.12em] text-slate">
+                                  Buying trigger
+                                </label>
+                                <textarea
+                                  id="manual-icp-trigger"
+                                  name="buyingTrigger"
+                                  value={manualIcp.buyingTrigger}
+                                  onChange={updateManualIcp}
+                                  rows={3}
+                                  placeholder="New compliance deadline, budget cycle, failed launch, missed revenue target"
+                                  className="min-h-24 rounded border border-line bg-paper px-3 py-2.5 text-sm text-ink outline-none transition placeholder:text-slate/50 focus:border-moss focus:ring-4 focus:ring-moss/10"
+                                />
+                              </div>
+                              <div className="grid gap-2">
+                                <label htmlFor="manual-icp-alternatives" className="text-xs font-bold uppercase tracking-[0.12em] text-slate">
+                                  Current alternatives
+                                </label>
+                                <textarea
+                                  id="manual-icp-alternatives"
+                                  name="currentAlternatives"
+                                  value={manualIcp.currentAlternatives}
+                                  onChange={updateManualIcp}
+                                  rows={3}
+                                  placeholder="Spreadsheets, agencies, incumbent tools, internal workflows"
+                                  className="min-h-24 rounded border border-line bg-paper px-3 py-2.5 text-sm text-ink outline-none transition placeholder:text-slate/50 focus:border-moss focus:ring-4 focus:ring-moss/10"
+                                />
+                              </div>
+                            </div>
+                            <div className="grid gap-2">
+                              <label htmlFor="manual-icp-questions" className="text-xs font-bold uppercase tracking-[0.12em] text-slate">
+                                Validation questions
+                              </label>
+                              <textarea
+                                id="manual-icp-questions"
+                                name="validationQuestions"
+                                value={manualIcp.validationQuestions}
+                                onChange={updateManualIcp}
+                                rows={3}
+                                placeholder="What changed recently? What budget would this replace? What would make you switch this quarter?"
+                                className="min-h-24 rounded border border-line bg-paper px-3 py-2.5 text-sm text-ink outline-none transition placeholder:text-slate/50 focus:border-moss focus:ring-4 focus:ring-moss/10"
+                              />
+                            </div>
+                            <div className="grid gap-2">
+                              <label htmlFor="manual-icp-motion" className="text-xs font-bold uppercase tracking-[0.12em] text-slate">
+                                Discovery motion
+                              </label>
+                              <input
+                                id="manual-icp-motion"
+                                name="recommendedDiscoveryMotion"
+                                value={manualIcp.recommendedDiscoveryMotion}
+                                onChange={updateManualIcp}
+                                placeholder="Interview 10 buyers in this segment and test paid pilot criteria."
+                                className="rounded border border-line bg-paper px-3 py-2.5 text-sm text-ink outline-none transition placeholder:text-slate/50 focus:border-moss focus:ring-4 focus:ring-moss/10"
+                              />
+                            </div>
+                            <div className="flex flex-wrap gap-3">
+                              <button
+                                type="button"
+                                onClick={addManualIcp}
+                                className="rounded bg-ink px-4 py-2.5 text-sm font-bold text-paper transition hover:bg-moss"
+                              >
+                                Save manual ICP
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setManualIcp(emptyManualIcp)}
+                                className="rounded border border-line bg-paper px-4 py-2.5 text-sm font-bold text-ink transition hover:border-moss hover:text-moss"
+                              >
+                                Clear manual fields
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
                       {icpError && (
                         <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{icpError}</p>
+                      )}
+                      {icpNotice && (
+                        <p className="rounded border border-blue-100 bg-paper px-3 py-2 text-sm text-slate">{icpNotice}</p>
                       )}
 
                       {icpSuggestions.length > 0 && (
                         <div className="grid gap-3">
-                          {icpSuggestions.map((suggestion) => (
+                          <div className="flex flex-col justify-between gap-2 rounded border border-blue-100 bg-paper px-3 py-2 sm:flex-row sm:items-center">
+                            <p className="text-sm font-semibold text-ink">
+                              {icpSuggestions.length} ICP {icpSuggestions.length === 1 ? "option" : "options"}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => setAreIcpSuggestionsCollapsed((current) => !current)}
+                              className="w-fit rounded border border-line bg-paper px-3 py-1.5 text-xs font-bold text-ink transition hover:border-moss hover:text-moss"
+                            >
+                              {areIcpSuggestionsCollapsed ? "Expand options" : "Collapse options"}
+                            </button>
+                          </div>
+                          {!areIcpSuggestionsCollapsed && icpSuggestions.map((suggestion) => (
                             <div key={suggestion.id} className="rounded border border-line bg-paper p-4">
-                              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                 <div>
                                   <p className="font-bold text-ink">{suggestion.segment}</p>
                                   <p className="mt-1 text-sm leading-6 text-slate">{suggestion.description}</p>
                                 </div>
-                                <span className="w-fit rounded bg-cream px-2.5 py-1 text-xs font-bold text-copper">
-                                  {suggestion.confidence}
-                                </span>
+                                <div className="flex items-center gap-2">
+                                  <span className="w-fit rounded bg-cream px-2.5 py-1 text-xs font-bold text-copper">
+                                    {suggestion.confidence}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => removeIcpSuggestion(suggestion.id)}
+                                    className="rounded border border-line bg-paper px-2.5 py-1 text-xs font-bold text-slate transition hover:border-amber-300 hover:text-amber-800"
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
                               </div>
+                              {suggestion.verticals?.length > 0 && (
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                  {suggestion.verticals.map((vertical) => (
+                                    <span
+                                      key={vertical}
+                                      className="rounded border border-blue-100 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-moss"
+                                    >
+                                      {vertical}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                              {suggestion.excludedVerticals?.length > 0 && (
+                                <div className="mt-3">
+                                  <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate">Exclude early</p>
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    {suggestion.excludedVerticals.map((vertical) => (
+                                      <span
+                                        key={vertical}
+                                        className="rounded border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800"
+                                      >
+                                        {vertical}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
                               <dl className="mt-3 grid gap-2 text-sm leading-6 text-slate">
+                                <div>
+                                  <dt className="font-semibold text-ink">Reasoning</dt>
+                                  <dd>{suggestion.reasoning || suggestion.whyItFits}</dd>
+                                </div>
+                                {suggestion.painIntensityReasoning && (
+                                  <div>
+                                    <dt className="font-semibold text-ink">Pain intensity</dt>
+                                    <dd>{suggestion.painIntensityReasoning}</dd>
+                                  </div>
+                                )}
+                                {suggestion.budgetReasoning && (
+                                  <div>
+                                    <dt className="font-semibold text-ink">Budget logic</dt>
+                                    <dd>{suggestion.budgetReasoning}</dd>
+                                  </div>
+                                )}
+                                {suggestion.urgencyReasoning && (
+                                  <div>
+                                    <dt className="font-semibold text-ink">Urgency logic</dt>
+                                    <dd>{suggestion.urgencyReasoning}</dd>
+                                  </div>
+                                )}
+                                {suggestion.reachabilityReasoning && (
+                                  <div>
+                                    <dt className="font-semibold text-ink">Reachability</dt>
+                                    <dd>{suggestion.reachabilityReasoning}</dd>
+                                  </div>
+                                )}
                                 <div>
                                   <dt className="font-semibold text-ink">Economic buyer</dt>
                                   <dd>{suggestion.economicBuyer}</dd>
                                 </div>
+                                {suggestion.endUser && (
+                                  <div>
+                                    <dt className="font-semibold text-ink">End user</dt>
+                                    <dd>{suggestion.endUser}</dd>
+                                  </div>
+                                )}
                                 <div>
                                   <dt className="font-semibold text-ink">Buying trigger</dt>
                                   <dd>{suggestion.buyingTrigger}</dd>
                                 </div>
+                                {suggestion.currentAlternatives?.length > 0 && (
+                                  <div>
+                                    <dt className="font-semibold text-ink">Current alternatives</dt>
+                                    <dd>{suggestion.currentAlternatives.join(", ")}</dd>
+                                  </div>
+                                )}
+                                {suggestion.whyNotOthers && (
+                                  <div>
+                                    <dt className="font-semibold text-ink">Why not broader segments</dt>
+                                    <dd>{suggestion.whyNotOthers}</dd>
+                                  </div>
+                                )}
                                 <div>
-                                  <dt className="font-semibold text-ink">Validation question</dt>
-                                  <dd>{suggestion.validationQuestion}</dd>
+                                  <dt className="font-semibold text-ink">Validation questions</dt>
+                                  <dd>
+                                    <ul className="mt-1 grid gap-1">
+                                      {(suggestion.validationQuestions?.length
+                                        ? suggestion.validationQuestions
+                                        : [suggestion.validationQuestion]
+                                      ).map((question) => (
+                                        <li key={question}>{question}</li>
+                                      ))}
+                                    </ul>
+                                  </dd>
                                 </div>
+                                {suggestion.recommendedDiscoveryMotion && (
+                                  <div>
+                                    <dt className="font-semibold text-ink">Recommended discovery motion</dt>
+                                    <dd>{suggestion.recommendedDiscoveryMotion}</dd>
+                                  </div>
+                                )}
                               </dl>
                               <button
                                 type="button"
@@ -378,7 +814,7 @@ export default function AssessmentPage() {
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-copper">Live preview</p>
             <div className="mt-4 flex items-center justify-between gap-4">
               <div>
-                <p className="text-sm text-slate">Market Readiness Score</p>
+                <p className="text-sm text-slate">Total Market Readiness Score</p>
                 <p className="mt-1 text-4xl font-bold text-ink">{preview.total}</p>
               </div>
               <div className="grid size-20 place-items-center rounded border border-blue-100 bg-blue-50 text-lg font-bold text-moss">
@@ -386,8 +822,18 @@ export default function AssessmentPage() {
               </div>
             </div>
             <p className="mt-4 text-lg font-semibold text-ink">{preview.maturityLabel}</p>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <div className="rounded border border-line bg-cream p-3">
+                <p className="text-xs font-semibold text-slate">Positive subtotal</p>
+                <p className="mt-1 text-xl font-bold text-ink">{preview.positiveScore}</p>
+              </div>
+              <div className="rounded border border-line bg-cream p-3">
+                <p className="text-xs font-semibold text-slate">Risk adjustments</p>
+                <p className="mt-1 text-xl font-bold text-amber-800">{preview.penaltyScore}</p>
+              </div>
+            </div>
             <div className="mt-5 grid gap-3">
-              {preview.breakdown.map((item) => (
+              {preview.positiveBreakdown.map((item) => (
                 <div key={item.dimension}>
                   <div className="mb-1 flex justify-between gap-3 text-xs font-semibold text-slate">
                     <span>{item.dimension}</span>
@@ -403,6 +849,23 @@ export default function AssessmentPage() {
                   </div>
                 </div>
               ))}
+              <div className="border-t border-line pt-3">
+                <p className="mb-2 text-xs font-bold uppercase tracking-[0.12em] text-slate">Risk adjustments</p>
+                {preview.penaltyBreakdown.map((item) => (
+                  <div key={item.dimension} className="mb-3 last:mb-0">
+                    <div className="mb-1 flex justify-between gap-3 text-xs font-semibold text-slate">
+                      <span>{item.dimension}</span>
+                      <span>{item.points}</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-slate-100">
+                      <div
+                        className="h-2 rounded-full bg-amber-500"
+                        style={{ width: `${(Math.abs(item.points) / item.maxPoints) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </aside>
         </div>
