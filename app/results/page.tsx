@@ -6,8 +6,8 @@ import { AssessmentInput, emptyAssessment, scoreAssessment, storageKey } from "@
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="min-w-0 border-t border-line pt-6">
-      <h2 className="font-serif text-2xl font-semibold text-ink">{title}</h2>
+    <section className="min-w-0 rounded border border-line bg-paper p-5">
+      <h2 className="text-lg font-bold tracking-tight text-ink">{title}</h2>
       <div className="report-prose mt-4 min-w-0">{children}</div>
     </section>
   );
@@ -17,7 +17,7 @@ function List({ items }: { items: string[] }) {
   return (
     <ul className="grid gap-3">
       {items.map((item) => (
-        <li key={item} className="border-l-4 border-moss bg-cream/70 px-4 py-3 text-sm leading-6">
+        <li key={item} className="rounded border border-line bg-cream px-4 py-3 text-sm leading-6">
           {item}
         </li>
       ))}
@@ -40,53 +40,69 @@ export default function ResultsPage() {
   const report = useMemo(() => scoreAssessment(assessment), [assessment]);
 
   return (
-    <main className="min-h-screen px-5 py-6 sm:px-8 lg:px-10">
+    <main className="min-h-screen bg-cream px-4 py-4 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-6xl">
-        <header className="flex flex-col justify-between gap-5 border-b border-line pb-5 md:flex-row md:items-center">
+        <header className="flex flex-col justify-between gap-4 rounded border border-line bg-paper px-4 py-3 shadow-soft md:flex-row md:items-center">
           <Link href="/" className="flex items-center gap-3">
-            <span className="grid size-10 place-items-center rounded bg-ink text-sm font-semibold text-paper">FP</span>
-            <span className="text-lg font-semibold text-ink">FitProof</span>
+            <span className="grid size-9 place-items-center rounded bg-moss text-xs font-bold text-paper">FP</span>
+            <span>
+              <span className="block text-sm font-bold text-ink">FitProof</span>
+              <span className="block text-xs text-slate">Results dashboard</span>
+            </span>
           </Link>
           <div className="flex gap-3">
-            <Link href="/assessment" className="rounded border border-line bg-paper px-4 py-2 text-sm font-semibold text-ink">
+            <Link href="/assessment" className="rounded border border-line bg-paper px-4 py-2 text-sm font-semibold text-ink transition hover:border-moss hover:text-moss">
               Edit inputs
             </Link>
-            <Link href="/" className="rounded bg-ink px-4 py-2 text-sm font-semibold text-paper">
+            <Link href="/" className="rounded bg-ink px-4 py-2 text-sm font-semibold text-paper transition hover:bg-moss">
               Home
             </Link>
           </div>
         </header>
 
         {!hasSaved && (
-          <div className="mt-8 border border-copper/30 bg-paper p-4 text-sm text-slate">
+          <div className="mt-6 rounded border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
             No saved assessment was found. The report below uses blank inputs as a preview; complete the assessment to generate a tailored report.
           </div>
         )}
 
-        <article className="mt-8 min-w-0 bg-paper p-5 shadow-soft sm:p-8 lg:p-10">
-          <div className="grid gap-8 border-b border-line pb-8 lg:grid-cols-[1fr_260px] lg:items-start">
+        <article className="mt-6 min-w-0">
+          <div className="grid gap-6 rounded border border-line bg-paper p-5 shadow-soft sm:p-6 lg:grid-cols-[1fr_260px] lg:items-start">
             <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-copper">FitProof results report</p>
-              <h1 className="mt-3 font-serif text-4xl font-semibold leading-tight text-ink sm:text-5xl">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-copper">FitProof results report</p>
+              <h1 className="mt-2 text-3xl font-bold leading-tight tracking-tight text-ink sm:text-4xl">
                 {assessment.startupName || "Startup"} Market Readiness Report
               </h1>
-              <p className="mt-5 max-w-3xl text-lg leading-8 text-slate">
+              <p className="mt-4 max-w-3xl text-base leading-7 text-slate">
                 {report.executiveSummary}
               </p>
             </div>
-            <div className="border border-line bg-cream p-5 text-center">
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-copper">Market Readiness Score</p>
-              <p className="mt-4 text-7xl font-bold tracking-tight text-ink">{report.total}</p>
-              <p className="mt-3 text-sm font-bold text-moss">{report.maturityLabel}</p>
+            <div className="rounded border border-blue-100 bg-blue-50 p-5 text-center">
+              <p className="text-xs font-bold uppercase tracking-[0.14em] text-moss">Market Readiness Score</p>
+              <p className="mt-3 text-6xl font-bold tracking-tight text-ink">{report.total}</p>
+              <p className="mt-3 text-sm font-bold text-copper">{report.maturityLabel}</p>
             </div>
           </div>
 
-          <div className="mt-8 grid gap-8">
+          <div className="mt-6 grid gap-4 sm:grid-cols-3">
+            {[
+              ["Maturity Label", report.maturityLabel],
+              ["Stage", assessment.stage],
+              ["Geography", assessment.geography || "Not specified"]
+            ].map(([label, value]) => (
+              <div key={label} className="rounded border border-line bg-paper p-4 shadow-soft">
+                <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate">{label}</p>
+                <p className="mt-2 text-sm font-semibold leading-6 text-ink">{value}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-6 grid gap-4">
             <Section title="Score Breakdown Table">
               <div className="max-w-full overflow-x-auto">
                 <table className="w-full min-w-[680px] border-collapse text-left text-sm">
                   <thead>
-                    <tr className="border-b border-line text-xs uppercase tracking-[0.14em] text-slate">
+                    <tr className="border-b border-line bg-cream text-xs uppercase tracking-[0.12em] text-slate">
                       <th className="py-3 pr-4">Dimension</th>
                       <th className="py-3 pr-4">Score</th>
                       <th className="py-3 pr-4">Weight</th>
@@ -95,7 +111,7 @@ export default function ResultsPage() {
                   </thead>
                   <tbody>
                     {report.breakdown.map((item) => (
-                      <tr key={item.dimension} className="border-b border-line/80">
+                      <tr key={item.dimension} className="border-b border-line/80 last:border-b-0">
                         <td className="py-4 pr-4 font-semibold text-ink">{item.dimension}</td>
                         <td className="py-4 pr-4 tabular-nums text-ink">{item.points}</td>
                         <td className="py-4 pr-4 tabular-nums text-slate">{item.maxPoints}</td>

@@ -4,7 +4,7 @@
 
 :root {
   color-scheme: light;
-  background: #f7f3ea;
+  background: #f8fafc;
 }
 
 * {
@@ -18,16 +18,13 @@ html {
 body {
   min-height: 100vh;
   margin: 0;
-  background:
-    linear-gradient(180deg, rgba(255, 253, 248, 0.94), rgba(247, 243, 234, 0.98)),
-    radial-gradient(circle at top left, rgba(49, 84, 70, 0.14), transparent 34%),
-    #f7f3ea;
-  color: #17211d;
+  background: #f8fafc;
+  color: #111827;
 }
 
 ::selection {
-  background: #315446;
-  color: #fffdf8;
+  background: #2563eb;
+  color: #ffffff;
 }
 
 input,
@@ -37,9 +34,9 @@ textarea {
 }
 
 .report-prose {
-  color: #36423d;
+  color: #4b5563;
 }
 
 .report-prose strong {
-  color: #17211d;
+  color: #111827;
 }

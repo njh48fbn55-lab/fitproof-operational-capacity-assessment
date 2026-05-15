@@ -5,20 +5,20 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        ink: "#17211d",
-        slate: "#36423d",
-        moss: "#315446",
-        copper: "#a15d3a",
-        cream: "#f7f3ea",
-        paper: "#fffdf8",
-        line: "#ded7c8"
+        ink: "#111827",
+        slate: "#4b5563",
+        moss: "#2563eb",
+        copper: "#0f766e",
+        cream: "#f8fafc",
+        paper: "#ffffff",
+        line: "#e5e7eb"
       },
       boxShadow: {
-        soft: "0 22px 70px rgba(23, 33, 29, 0.12)"
+        soft: "0 14px 40px rgba(15, 23, 42, 0.08)"
       },
       fontFamily: {
         sans: ["Inter", "ui-sans-serif", "system-ui", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"],
-        serif: ["Georgia", "Cambria", "Times New Roman", "serif"]
+        serif: ["Inter", "ui-sans-serif", "system-ui", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "sans-serif"]
       }
     }
   },

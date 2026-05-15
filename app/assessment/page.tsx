@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { CompetitorResearchResult, competitorResearchStorageKey } from "@/lib/competitor-research";
+import { IcpSuggestion, icpSuggestionStorageKey } from "@/lib/icp-suggestions";
 import { AssessmentInput, emptyAssessment, scoreAssessment, storageKey } from "@/lib/scoring";
 
 const fields: Array<{
@@ -34,12 +35,17 @@ export default function AssessmentPage() {
   const [form, setForm] = useState<AssessmentInput>(emptyAssessment);
   const [researchResults, setResearchResults] = useState<CompetitorResearchResult[]>([]);
   const [selectedResearchIds, setSelectedResearchIds] = useState<string[]>([]);
+  const [icpSuggestions, setIcpSuggestions] = useState<IcpSuggestion[]>([]);
   const [isResearching, setIsResearching] = useState(false);
+  const [isSuggestingIcps, setIsSuggestingIcps] = useState(false);
   const [researchError, setResearchError] = useState("");
+  const [icpError, setIcpError] = useState("");
 
   useEffect(() => {
     const saved = window.localStorage.getItem(storageKey);
     if (saved) setForm({ ...emptyAssessment, ...JSON.parse(saved) });
+    const savedIcps = window.localStorage.getItem(icpSuggestionStorageKey);
+    if (savedIcps) setIcpSuggestions(JSON.parse(savedIcps) as IcpSuggestion[]);
     const savedResearch = window.localStorage.getItem(competitorResearchStorageKey);
     if (savedResearch) {
       const parsed = JSON.parse(savedResearch) as CompetitorResearchResult[];
@@ -70,9 +76,50 @@ export default function AssessmentPage() {
     setForm(emptyAssessment);
     setResearchResults([]);
     setSelectedResearchIds([]);
+    setIcpSuggestions([]);
     setResearchError("");
+    setIcpError("");
     window.localStorage.removeItem(storageKey);
     window.localStorage.removeItem(competitorResearchStorageKey);
+    window.localStorage.removeItem(icpSuggestionStorageKey);
+  }
+
+  async function suggestIcps() {
+    setIsSuggestingIcps(true);
+    setIcpError("");
+
+    try {
+      const response = await fetch("/api/suggest-icps", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(form)
+      });
+
+      const data = (await response.json()) as { suggestions?: IcpSuggestion[]; error?: string };
+      if (!response.ok) throw new Error(data.error || "ICP suggestion failed.");
+
+      const suggestions = data.suggestions || [];
+      setIcpSuggestions(suggestions);
+      window.localStorage.setItem(icpSuggestionStorageKey, JSON.stringify(suggestions));
+      if (!suggestions.length) {
+        setIcpError("No ICP suggestions were generated. Add a clearer product description, problem, or market category.");
+      }
+    } catch (error) {
+      setIcpError(error instanceof Error ? error.message : "ICP suggestion failed.");
+    } finally {
+      setIsSuggestingIcps(false);
+    }
+  }
+
+  function applyIcpSuggestion(suggestion: IcpSuggestion) {
+    const nextForm = {
+      ...form,
+      targetCustomer: `${suggestion.segment}: ${suggestion.description}`,
+      economicBuyer: form.economicBuyer.trim() ? form.economicBuyer : suggestion.economicBuyer
+    };
+
+    setForm(nextForm);
+    window.localStorage.setItem(storageKey, JSON.stringify(nextForm));
   }
 
   async function researchCompetitors() {
@@ -130,36 +177,39 @@ export default function AssessmentPage() {
   }
 
   return (
-    <main className="min-h-screen px-5 py-6 sm:px-8 lg:px-10">
+    <main className="min-h-screen bg-cream px-4 py-4 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-7xl">
-        <header className="flex flex-col justify-between gap-5 border-b border-line pb-5 md:flex-row md:items-center">
+        <header className="flex flex-col justify-between gap-4 rounded border border-line bg-paper px-4 py-3 shadow-soft md:flex-row md:items-center">
           <Link href="/" className="flex items-center gap-3">
-            <span className="grid size-10 place-items-center rounded bg-ink text-sm font-semibold text-paper">FP</span>
-            <span className="text-lg font-semibold text-ink">FitProof</span>
+            <span className="grid size-9 place-items-center rounded bg-moss text-xs font-bold text-paper">FP</span>
+            <span>
+              <span className="block text-sm font-bold text-ink">FitProof</span>
+              <span className="block text-xs text-slate">Assessment workspace</span>
+            </span>
           </Link>
           <div className="flex gap-3">
-            <button onClick={clearForm} className="rounded border border-line bg-paper px-4 py-2 text-sm font-semibold text-ink">
+            <button onClick={clearForm} className="rounded border border-line bg-paper px-4 py-2 text-sm font-semibold text-ink transition hover:border-moss hover:text-moss">
               Reset
             </button>
-            <Link href="/results" className="rounded bg-ink px-4 py-2 text-sm font-semibold text-paper">
+            <Link href="/results" className="rounded bg-ink px-4 py-2 text-sm font-semibold text-paper transition hover:bg-moss">
               Saved report
             </Link>
           </div>
         </header>
 
-        <div className="grid gap-8 py-8 lg:grid-cols-[minmax(0,1fr)_380px]">
-          <section>
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-copper">Assessment form</p>
-            <h1 className="mt-3 font-serif text-4xl font-semibold text-ink sm:text-5xl">Market Readiness inputs</h1>
-            <p className="mt-4 max-w-3xl text-lg leading-8 text-slate">
+        <div className="grid gap-6 py-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <section className="rounded border border-line bg-paper p-5 shadow-soft sm:p-6">
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-copper">Assessment form</p>
+            <h1 className="mt-2 text-3xl font-bold tracking-tight text-ink sm:text-4xl">Market Readiness inputs</h1>
+            <p className="mt-3 max-w-3xl text-base leading-7 text-slate">
               Capture the evidence investors and early buyers care about. FitProof will evaluate Market Readiness,
               Problem-Market Fit, and Market Fit Likelihood without claiming product-market fit.
             </p>
 
-            <form onSubmit={handleSubmit} className="mt-8 grid gap-5">
+            <form onSubmit={handleSubmit} className="mt-6 grid gap-5">
               {fields.map((field) => (
                 <div key={field.name} className="grid gap-2">
-                  <label htmlFor={`field-${field.name}`} className="text-sm font-bold text-ink">
+                  <label htmlFor={`field-${field.name}`} className="text-sm font-semibold text-ink">
                     {field.label}
                   </label>
                   {field.type === "textarea" ? (
@@ -170,7 +220,7 @@ export default function AssessmentPage() {
                       onChange={updateField}
                       rows={4}
                       placeholder={field.placeholder}
-                      className="min-h-28 rounded border border-line bg-paper px-4 py-3 text-ink outline-none transition placeholder:text-slate/50 focus:border-moss focus:ring-4 focus:ring-moss/10"
+                      className="min-h-28 rounded border border-line bg-paper px-3 py-2.5 text-sm text-ink outline-none transition placeholder:text-slate/50 focus:border-moss focus:ring-4 focus:ring-moss/10"
                     />
                   ) : field.type === "select" ? (
                     <select
@@ -178,7 +228,7 @@ export default function AssessmentPage() {
                       name={field.name}
                       value={form[field.name]}
                       onChange={updateField}
-                      className="rounded border border-line bg-paper px-4 py-3 text-ink outline-none transition focus:border-moss focus:ring-4 focus:ring-moss/10"
+                      className="rounded border border-line bg-paper px-3 py-2.5 text-sm text-ink outline-none transition focus:border-moss focus:ring-4 focus:ring-moss/10"
                     >
                       {stages.map((stage) => (
                         <option key={stage} value={stage}>
@@ -193,11 +243,74 @@ export default function AssessmentPage() {
                       value={form[field.name]}
                       onChange={updateField}
                       placeholder={field.placeholder}
-                      className="rounded border border-line bg-paper px-4 py-3 text-ink outline-none transition placeholder:text-slate/50 focus:border-moss focus:ring-4 focus:ring-moss/10"
+                      className="rounded border border-line bg-paper px-3 py-2.5 text-sm text-ink outline-none transition placeholder:text-slate/50 focus:border-moss focus:ring-4 focus:ring-moss/10"
                     />
                   )}
+                  {field.name === "targetCustomer" && (
+                    <div className="mt-3 grid gap-4 rounded border border-blue-100 bg-blue-50/60 p-4">
+                      <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                        <div>
+                          <p className="text-sm font-bold text-ink">ICP suggestion engine</p>
+                          <p className="mt-1 text-sm leading-6 text-slate">
+                            Generate likely initial customer profiles from the product, problem, market category, buyer, geography, and stage.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={suggestIcps}
+                          disabled={isSuggestingIcps}
+                          className="rounded bg-moss px-4 py-2.5 text-sm font-bold text-paper transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isSuggestingIcps ? "Suggesting..." : "Suggest ICPs"}
+                        </button>
+                      </div>
+
+                      {icpError && (
+                        <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{icpError}</p>
+                      )}
+
+                      {icpSuggestions.length > 0 && (
+                        <div className="grid gap-3">
+                          {icpSuggestions.map((suggestion) => (
+                            <div key={suggestion.id} className="rounded border border-line bg-paper p-4">
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                                <div>
+                                  <p className="font-bold text-ink">{suggestion.segment}</p>
+                                  <p className="mt-1 text-sm leading-6 text-slate">{suggestion.description}</p>
+                                </div>
+                                <span className="w-fit rounded bg-cream px-2.5 py-1 text-xs font-bold text-copper">
+                                  {suggestion.confidence}
+                                </span>
+                              </div>
+                              <dl className="mt-3 grid gap-2 text-sm leading-6 text-slate">
+                                <div>
+                                  <dt className="font-semibold text-ink">Economic buyer</dt>
+                                  <dd>{suggestion.economicBuyer}</dd>
+                                </div>
+                                <div>
+                                  <dt className="font-semibold text-ink">Buying trigger</dt>
+                                  <dd>{suggestion.buyingTrigger}</dd>
+                                </div>
+                                <div>
+                                  <dt className="font-semibold text-ink">Validation question</dt>
+                                  <dd>{suggestion.validationQuestion}</dd>
+                                </div>
+                              </dl>
+                              <button
+                                type="button"
+                                onClick={() => applyIcpSuggestion(suggestion)}
+                                className="mt-4 rounded border border-moss bg-paper px-4 py-2.5 text-sm font-bold text-moss transition hover:bg-moss hover:text-paper"
+                              >
+                                Use this ICP
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {field.name === "competitors" && (
-                    <div className="mt-3 grid gap-4 border border-line bg-paper p-4">
+                    <div className="mt-3 grid gap-4 rounded border border-blue-100 bg-blue-50/60 p-4">
                       <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
                         <div>
                           <p className="text-sm font-bold text-ink">Web-assisted competitor discovery</p>
@@ -209,14 +322,14 @@ export default function AssessmentPage() {
                           type="button"
                           onClick={researchCompetitors}
                           disabled={isResearching}
-                          className="rounded bg-ink px-4 py-3 text-sm font-bold text-paper transition hover:bg-moss disabled:cursor-not-allowed disabled:opacity-60"
+                          className="rounded bg-moss px-4 py-2.5 text-sm font-bold text-paper transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           {isResearching ? "Researching..." : "Research competitors"}
                         </button>
                       </div>
 
                       {researchError && (
-                        <p className="border border-copper/30 bg-cream px-3 py-2 text-sm text-copper">{researchError}</p>
+                        <p className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{researchError}</p>
                       )}
 
                       {researchResults.length > 0 && (
@@ -224,7 +337,7 @@ export default function AssessmentPage() {
                           {researchResults.map((result) => (
                             <label
                               key={result.id}
-                              className="grid cursor-pointer grid-cols-[auto_1fr] gap-3 border border-line bg-cream/60 p-3"
+                              className="grid cursor-pointer grid-cols-[auto_1fr] gap-3 rounded border border-line bg-paper p-3 transition hover:border-moss"
                             >
                               <input
                                 type="checkbox"
@@ -245,7 +358,7 @@ export default function AssessmentPage() {
                           <button
                             type="button"
                             onClick={saveSelectedCompetitors}
-                            className="rounded border border-moss bg-paper px-4 py-3 text-sm font-bold text-moss transition hover:bg-moss hover:text-paper"
+                            className="rounded border border-moss bg-paper px-4 py-2.5 text-sm font-bold text-moss transition hover:bg-moss hover:text-paper"
                           >
                             Save selected competitors
                           </button>
@@ -255,20 +368,20 @@ export default function AssessmentPage() {
                   )}
                 </div>
               ))}
-              <button className="rounded bg-moss px-5 py-4 text-sm font-bold text-paper shadow-soft transition hover:bg-ink">
+              <button className="rounded bg-moss px-5 py-3 text-sm font-bold text-paper shadow-soft transition hover:bg-blue-700">
                 Generate results report
               </button>
             </form>
           </section>
 
-          <aside className="h-fit border border-line bg-paper p-5 shadow-soft lg:sticky lg:top-6">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-copper">Live preview</p>
+          <aside className="h-fit rounded border border-line bg-paper p-5 shadow-soft lg:sticky lg:top-6">
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-copper">Live preview</p>
             <div className="mt-4 flex items-center justify-between gap-4">
               <div>
                 <p className="text-sm text-slate">Market Readiness Score</p>
                 <p className="mt-1 text-4xl font-bold text-ink">{preview.total}</p>
               </div>
-              <div className="grid size-24 place-items-center rounded-full border-8 border-moss/20 text-lg font-bold text-moss">
+              <div className="grid size-20 place-items-center rounded border border-blue-100 bg-blue-50 text-lg font-bold text-moss">
                 {completion}%
               </div>
             </div>
@@ -282,7 +395,7 @@ export default function AssessmentPage() {
                       {item.points}/{item.maxPoints}
                     </span>
                   </div>
-                  <div className="h-2 rounded-full bg-cream">
+                  <div className="h-2 rounded-full bg-slate-100">
                     <div
                       className="h-2 rounded-full bg-moss"
                       style={{ width: `${(item.points / item.maxPoints) * 100}%` }}
