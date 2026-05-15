@@ -1,0 +1,5 @@
+.next/
+.next-stale-dev-cache/
+node_modules/
+tsconfig.tsbuildinfo
+.env*.local
