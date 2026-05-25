@@ -4,7 +4,7 @@
 
 :root {
   color-scheme: light;
-  background: #f8fafc;
+  background: #f7f7f4;
 }
 
 * {
@@ -18,13 +18,13 @@ html {
 body {
   min-height: 100vh;
   margin: 0;
-  background: #f8fafc;
-  color: #111827;
+  background: #f7f7f4;
+  color: #111111;
 }
 
 ::selection {
-  background: #2563eb;
-  color: #ffffff;
+  background: #67a629;
+  color: #050505;
 }
 
 input,
@@ -38,5 +38,17 @@ textarea {
 }
 
 .report-prose strong {
-  color: #111827;
+  color: #111111;
+}
+
+@media print {
+  @page {
+    margin: 0.55in;
+  }
+
+  body {
+    background: #ffffff;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
 }

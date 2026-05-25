@@ -5,13 +5,18 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        ink: "#111827",
-        slate: "#4b5563",
-        moss: "#2563eb",
-        copper: "#0f766e",
-        cream: "#f8fafc",
+        ink: "#111111",
+        blacktop: "#050505",
+        graphite: "#1C1C1C",
+        charcoal: "#2B2B2B",
+        slate: "#6D6D6D",
+        fitgreen: "#67a629",
+        greenline: "#8bbf5a",
+        mist: "#F4F7F2",
+        cream: "#F7F7F4",
+        panel: "#FAFAF7",
         paper: "#ffffff",
-        line: "#e5e7eb"
+        line: "#E3E3DD"
       },
       boxShadow: {
         soft: "0 14px 40px rgba(15, 23, 42, 0.08)"

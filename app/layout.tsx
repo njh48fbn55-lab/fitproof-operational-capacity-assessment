@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "FitProof | Nonprofit Revenue Pipeline Assessment",
-  description: "Assess how effectively a nonprofit revenue pipeline moves from lead to cash."
+  title: "FitProof | Operational Capacity Assessment",
+  description: "Assess nonprofit operational maturity, strain risk, and capacity interventions."
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
