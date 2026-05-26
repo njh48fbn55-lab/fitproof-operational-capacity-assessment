@@ -87,8 +87,18 @@ function Field({
 
 function hasAnswer(question: Question, responses: Responses) {
   const value = responses[question.id];
-  if (question.type === "multi") return (Array.isArray(value) && value.length > 0) || (typeof value === "string" && value.trim().length > 0);
-  return typeof value === "string" && value.trim().length > 0;
+  const validOptions = new Set(getQuestionOptions(question).map((option) => option.label));
+
+  if (question.type === "text") {
+    return typeof value === "string" && value.trim().length > 0;
+  }
+
+  if (question.type === "multi") {
+    if (Array.isArray(value)) return value.some((item) => validOptions.has(item));
+    return typeof value === "string" && validOptions.has(value);
+  }
+
+  return typeof value === "string" && validOptions.has(value);
 }
 
 export default function Home() {
@@ -275,9 +285,9 @@ export default function Home() {
                   <p className="text-xs font-bold uppercase tracking-[0.16em] text-fitgreen">Section weight {section.weight}%</p>
                   <h2 className="mt-1 text-xl font-bold tracking-tight">{section.title}</h2>
                   <p className="mt-1 text-sm leading-6 text-slate">{section.purpose}</p>
-                  {showSectionValidation && !sectionComplete && (
+                  {!sectionComplete && (
                     <p className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
-                      Please answer all questions in this section to continue. {missingInSection} remaining.
+                      Please answer all questions in this section to continue. {missingInSection} remaining. "Select a response" does not count as an answer.
                     </p>
                   )}
                 </div>
@@ -388,7 +398,8 @@ export default function Home() {
                   <button
                     type="button"
                     onClick={goForward}
-                    className="min-h-11 rounded bg-fitgreen px-4 text-sm font-bold text-blacktop transition hover:bg-blacktop hover:text-fitgreen"
+                    disabled={!sectionComplete}
+                    className="min-h-11 rounded bg-fitgreen px-4 text-sm font-bold text-blacktop transition hover:bg-blacktop hover:text-fitgreen disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate"
                   >
                     {currentStep === domains.length - 1 ? "Continue to findings and report" : "Next section"}
                   </button>
@@ -842,7 +853,7 @@ function OperationalGauge({ strain }: { strain: number }) {
         <p className="max-w-48 text-right text-xs font-semibold leading-5 text-slate">Lower scores indicate less operating pressure. Higher scores indicate more urgent strain.</p>
       </div>
 
-      <div className="mx-auto mt-3 w-[66%]">
+      <div className="mx-auto mt-3 w-1/2 min-w-[210px] max-w-[300px]">
         <svg viewBox="0 0 300 168" role="img" aria-label={`Operational strain ${strain} out of 100`} className="h-auto w-full">
           <defs>
             <linearGradient id="capacityGaugeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -856,8 +867,8 @@ function OperationalGauge({ strain }: { strain: number }) {
           <line x1={centerX} y1={centerY} x2={pointerX} y2={pointerY} stroke="#111111" strokeWidth="4" strokeLinecap="round" />
           <circle cx={centerX} cy={centerY} r="8" fill="#111111" />
           <circle cx={pointerX} cy={pointerY} r="7" fill="#ffffff" stroke="#111111" strokeWidth="3" />
-          <text x="30" y="153" fontSize="12" fontWeight="700" fill="#4b5563">0 low strain</text>
-          <text x="270" y="153" textAnchor="end" fontSize="12" fontWeight="700" fill="#4b5563">100 severe strain</text>
+          <text x="30" y="153" fontSize="10" fontWeight="700" fill="#4b5563">0 low strain</text>
+          <text x="270" y="153" textAnchor="end" fontSize="10" fontWeight="700" fill="#4b5563">100 severe strain</text>
         </svg>
       </div>
       <p className="mt-2 text-sm leading-6 text-slate">
