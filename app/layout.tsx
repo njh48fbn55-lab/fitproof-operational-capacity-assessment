@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "FitProof | Operational Capacity Assessment",
-  description: "Assess nonprofit operational maturity, strain risk, and capacity interventions."
+  description: "Assess nonprofit operational strain, operating constraints, and capacity interventions."
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

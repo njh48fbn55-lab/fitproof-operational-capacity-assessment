@@ -6,6 +6,7 @@ import {
   generateRisks,
   getOpenConstraint,
   Profile,
+  questions,
   Responses,
   stageRecommendations
 } from "@/lib/operational-capacity";
@@ -63,7 +64,7 @@ function extractCandidateLinks(html: string, baseUrl: string) {
     .filter((url) => url.origin === base.origin)
     .filter((url) => !url.hash && !url.pathname.match(/\.(pdf|jpg|jpeg|png|gif|svg|zip|doc|docx|xls|xlsx)$/i));
 
-  const usefulPath = /(about|mission|program|service|impact|annual|financial|leadership|team|who-we-are|what-we-do|strategy|report)/i;
+  const usefulPath = /(about|mission|program|service|impact|annual|financial|leadership|team|who-we-are|what-we-do|strategy|report|news|press|grant|contract|funding|career|jobs|plan)/i;
   const seen = new Set<string>();
 
   return candidates
@@ -129,6 +130,13 @@ function fallbackReport(profile: Profile, responses: Responses, result: Assessme
   const recommendation = stageRecommendations[result.stage.number];
   const topRisks = generateRisks(result);
   const sourceSignals = sources.slice(0, 3).map((source) => `Reviewed ${source.title} for public mission, program, and operating-model context.`);
+  const primaryStrainDrivers = result.topRiskDomains.map((domain) => ({
+    category: domain.title,
+    strain: `${domain.risk}/100 category strain score.`,
+    evidence: `${domain.answered} scored responses were available in this category.`,
+    whyItMatters: "This category is one of the highest-strain areas in the assessment and should be interpreted against the organization's service model, staffing model, and growth demands.",
+    consequence: "If left unaddressed, this strain can increase manual work, slow decisions, and weaken service delivery reliability."
+  }));
 
   return {
     generated: false,
@@ -142,47 +150,125 @@ function fallbackReport(profile: Profile, responses: Responses, result: Assessme
     topRisks: topRisks.length
       ? topRisks
       : [
-          "Operational risk should be interpreted from the highest section scores once the full assessment is completed.",
+          "Operational strain should be interpreted from the highest section scores once the full assessment is completed.",
           "Incomplete assessment data limits the specificity of the top-risk diagnosis.",
           "The report will become more precise as more scored responses are provided."
         ],
     recommendations: recommendation.actions,
     fitProofEngagement: recommendation.cta,
+    primaryStrainDrivers,
+    recommendedEngagement: {
+      recommendedOffering: recommendation.cta,
+      whyThisOfferingFits: `${profile.organization || "The organization"} is in Stage ${result.stage.number}: ${result.stage.name}, with strain concentrated in ${result.topRiskDomains.map((domain) => domain.shortTitle).join(", ") || "the assessed sections"}.`,
+      primaryObjectives: recommendation.actions.slice(0, 3),
+      initialWorkplan: recommendation.actions,
+      expectedOutcomes: ["Clearer operating priorities", "Reduced execution drag in the highest-strain areas", "Better visibility for leadership decisions"],
+      suggestedTimeline: result.riskScore >= 75 ? "Immediate 30-60 day stabilization sprint" : "30-60 day diagnostic and implementation sprint",
+      whyNow: "The assessment indicates operational strain that should be addressed before it compounds into service, staffing, reporting, or funding execution issues."
+    },
+    nextSteps: [
+      "Validate the highest-strain categories with leadership and frontline owners.",
+      "Identify the workflows, reports, and decisions most affected by current strain.",
+      "Prioritize one 30-60 day stabilization sprint around the highest-consequence operating constraint."
+    ],
     publicSignals: sourceSignals.length ? sourceSignals : ["No AI-enriched public website signals were available for this report."],
     sources: sources.map((source) => ({ title: source.title, url: source.url }))
   };
+}
+
+function responseSummary(responses: Responses) {
+  const questionById = new Map(questions.map((question) => [question.id, question.prompt]));
+
+  return Object.entries(responses)
+    .map(([questionId, answer]) => `${questionById.get(questionId) || questionId}: ${Array.isArray(answer) ? answer.join(", ") : answer}`)
+    .join("\n");
 }
 
 function buildPrompt(profile: Profile, responses: Responses, result: AssessmentResult, sources: SourcePage[]) {
   const sourceText = sources
     .map((source, index) => `SOURCE ${index + 1}: ${source.title}\nURL: ${source.url}\nTEXT: ${source.text}`)
     .join("\n\n");
+  const categoryScores = result.domainScores
+    .map((domain) => `${domain.title}: ${domain.risk}/100 strain score, ${domain.weight}% weight, ${domain.answered} scored responses`)
+    .join("\n");
 
-  return `Create an executive operational strain report for FitProof.
+  return `You are generating an executive-level operational strain assessment for an organization that completed the FitProof assessment.
 
 Rules:
-- Use the deterministic scoring as authoritative. Do not change scores, stage, weights, or flags.
-- Use public website source text only as supporting context. Do not invent facts.
-- Write concise executive language for nonprofit leadership.
+- Do not use maturity scoring.
+- Do not mention maturity score.
+- The only scoring framework is operational strain.
+- Use the deterministic strain score, category strain scores, spiral stage, weights, and flags as authoritative.
+- Use public source text only as supporting context. Do not invent facts.
+- If data is unavailable, say so plainly.
+- Clearly distinguish known facts from reasonable inferences.
+- Write in an executive advisory memo style: specific, commercially useful, direct but not alarmist, practical, and implementation-oriented.
+- Avoid generic nonprofit filler and unsupported claims.
 - Return only valid JSON with this exact shape:
 {
   "executiveSummary": "string",
   "organizationSnapshot": "string",
   "strainDiagnosis": "string",
   "missionImplications": "string",
+  "primaryStrainDrivers": [
+    {
+      "category": "string",
+      "strain": "string",
+      "evidence": "string",
+      "whyItMatters": "string",
+      "consequence": "string"
+    }
+  ],
   "topRisks": ["string", "string", "string"],
   "recommendations": ["string", "string", "string", "string", "string"],
   "fitProofEngagement": "string",
+  "recommendedEngagement": {
+    "recommendedOffering": "string",
+    "whyThisOfferingFits": "string",
+    "primaryObjectives": ["string", "string", "string"],
+    "initialWorkplan": ["string", "string", "string", "string"],
+    "expectedOutcomes": ["string", "string", "string"],
+    "suggestedTimeline": "string",
+    "whyNow": "string"
+  },
+  "nextSteps": ["string", "string", "string", "string", "string"],
   "publicSignals": ["string", "string", "string"]
 }
+
+Report structure and content requirements:
+1. Executive Summary: Write 2-4 strong paragraphs. Include the organization spiral stage, strain score, major strain drivers, and likely organizational consequences. Tie the analysis directly to the organization programs, revenue model, operating complexity, service delivery, staffing model, geography, growth plans, and mission when supported by available data.
+2. Organization Snapshot: Provide a researched snapshot of what the organization does, who it serves, where it operates, major services or programs, apparent revenue streams, business model, scale, recent news or strategic signals, and what those facts suggest about current direction or pressure points. Clearly distinguish known facts from reasonable inferences.
+3. Spiral Stage Diagnosis: Explain what the assigned spiral stage means and how the organization appears to be experiencing that stage based on assessment responses and company context.
+4. Primary Strain Drivers: Identify the top strain categories. For each, explain what the strain appears to be, what evidence supports it, why it matters for this organization, and what could happen if it is not addressed.
+5. Implications for the Organization: Explain likely operational, financial, staffing, compliance, service delivery, and mission implications specific to the organization.
+6. Recommended FitProof Engagement: Recommend one specific FitProof engagement using the required format in recommendedEngagement.
+7. Next 30-60 Days: Provide a practical action plan with first steps.
+
+Offering logic:
+- Early strain / signal stage: Operational Readiness Assessment or Revenue Operations Diagnostic
+- Knowledge Fragmentation: Knowledge Infrastructure & Process Stabilization Sprint
+- Process Breakdown: Operational Stabilization & Revenue Process Optimization Engagement
+- Leadership Bottleneck: Executive Operating System & Decision Infrastructure Engagement
+- Reactive Operations: Full Operational Turnaround Readiness Engagement
+- Mission Drag or severe strain: Mission-Critical Operating Model Reset
 
 Organization:
 ${profile.organization || "Unknown organization"}
 Website:
 ${profile.websiteUrl || "No website provided"}
 
-Assessment result:
-${JSON.stringify(result, null, 2)}
+Overall operational strain score:
+${result.riskScore}/100
+
+Spiral stage:
+Stage ${result.stage.number}: ${result.stage.name}
+${result.stage.interpretation}
+
+Category strain scores:
+${categoryScores}
+
+Assessment responses:
+${responseSummary(responses) || "No responses available."}
 
 Open text constraint:
 ${getOpenConstraint(responses) || "None provided"}

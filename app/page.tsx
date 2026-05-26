@@ -34,10 +34,16 @@ const questionNumbers = questions.reduce<Record<string, number>>((numbers, quest
   return numbers;
 }, {});
 
-function Meter({ value, tone = "teal" }: { value: number; tone?: "teal" | "amber" }) {
+function Meter({ value }: { value: number }) {
   return (
     <span className="block h-2 overflow-hidden rounded-full bg-slate-200">
-      <span className={`block h-full rounded-full ${tone === "amber" ? "bg-charcoal" : "bg-fitgreen"}`} style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />
+      <span
+        className="block h-full rounded-full"
+        style={{
+          width: `${Math.max(0, Math.min(100, value))}%`,
+          background: "linear-gradient(90deg, #67a629 0%, #f1c232 55%, #d83131 100%)"
+        }}
+      />
     </span>
   );
 }
@@ -173,7 +179,7 @@ export default function Home() {
               </div>
             </div>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-white/75">
-              A mission-driven diagnostic for nonprofit leaders to identify operational maturity, strain risk, and the next interventions that protect capacity for growth.
+              A mission-driven diagnostic for nonprofit leaders to identify operational strain, operating constraints, and the next interventions that protect capacity for growth.
             </p>
           </div>
           <div className="grid gap-2">
@@ -416,7 +422,6 @@ function Report({
         (domain) => `
           <tr>
             <td>${escapeHtml(domain.title)}</td>
-            <td>${escapeHtml(domain.maturity)}/100</td>
             <td>${escapeHtml(domain.risk)}/100</td>
             <td>${escapeHtml(domain.answered)}</td>
           </tr>
@@ -459,7 +464,7 @@ function Report({
           <p>${escapeHtml(summary)}</p>
 
           <h2>Score Profile</h2>
-          <p><span class="score">Operational maturity: ${escapeHtml(result.maturityScore)}/100</span><span class="score">Operational strain: ${escapeHtml(result.riskScore)}/100</span><span class="score">Stage ${escapeHtml(result.stage.number)}: ${escapeHtml(result.stage.name)}</span></p>
+          <p><span class="score">Operational strain: ${escapeHtml(result.riskScore)}/100</span><span class="score">Stage ${escapeHtml(result.stage.number)}: ${escapeHtml(result.stage.name)}</span></p>
 
           ${generatedReport?.organizationSnapshot ? `<h2>Organization Snapshot</h2><p>${escapeHtml(generatedReport.organizationSnapshot)}</p>` : ""}
           ${generatedReport?.missionImplications ? `<h2>Mission Implications</h2><p>${escapeHtml(generatedReport.missionImplications)}</p>` : ""}
@@ -467,11 +472,28 @@ function Report({
 
           <h2>Section Scorecard</h2>
           <table>
-            <thead><tr><th>Section</th><th>Maturity</th><th>Strain</th><th>Responses</th></tr></thead>
+            <thead><tr><th>Section</th><th>Strain</th><th>Responses</th></tr></thead>
             <tbody>${sectionRows}</tbody>
           </table>
 
-          <h2>Top Operational Risks</h2>
+          <h2>Primary Strain Drivers</h2>
+          ${
+            generatedReport?.primaryStrainDrivers?.length
+              ? generatedReport.primaryStrainDrivers
+                  .map(
+                    (driver) => `
+                      <h3>${escapeHtml(driver.category)}</h3>
+                      <p><strong>What the strain appears to be:</strong> ${escapeHtml(driver.strain)}</p>
+                      <p><strong>Evidence:</strong> ${escapeHtml(driver.evidence)}</p>
+                      <p><strong>Why it matters:</strong> ${escapeHtml(driver.whyItMatters)}</p>
+                      <p><strong>If not addressed:</strong> ${escapeHtml(driver.consequence)}</p>
+                    `
+                  )
+                  .join("")
+              : `<ul>${listItems(risks)}</ul>`
+          }
+
+          <h2>Top Operational Strain Risks</h2>
           <ul>${listItems(risks)}</ul>
 
           <h2>How to Interrupt the Spiral</h2>
@@ -479,7 +501,22 @@ function Report({
           <ul>${listItems(actions)}</ul>
 
           <h2>Recommended FitProof Engagement</h2>
-          <p>${escapeHtml(generatedReport?.fitProofEngagement || recommendation.cta)}</p>
+          <p><strong>Recommended Offering:</strong> ${escapeHtml(generatedReport?.recommendedEngagement?.recommendedOffering || generatedReport?.fitProofEngagement || recommendation.cta)}</p>
+          ${
+            generatedReport?.recommendedEngagement
+              ? `
+                <p><strong>Why This Offering Fits:</strong> ${escapeHtml(generatedReport.recommendedEngagement.whyThisOfferingFits)}</p>
+                <p><strong>Primary Objectives:</strong></p><ul>${listItems(generatedReport.recommendedEngagement.primaryObjectives)}</ul>
+                <p><strong>Initial Workplan:</strong></p><ul>${listItems(generatedReport.recommendedEngagement.initialWorkplan)}</ul>
+                <p><strong>Expected Outcomes:</strong></p><ul>${listItems(generatedReport.recommendedEngagement.expectedOutcomes)}</ul>
+                <p><strong>Suggested Timeline:</strong> ${escapeHtml(generatedReport.recommendedEngagement.suggestedTimeline)}</p>
+                <p><strong>Why Now:</strong> ${escapeHtml(generatedReport.recommendedEngagement.whyNow)}</p>
+              `
+              : ""
+          }
+
+          <h2>Next 30-60 Days</h2>
+          <ul>${listItems(generatedReport?.nextSteps?.length ? generatedReport.nextSteps : actions)}</ul>
 
           ${generatedReport?.publicSignals?.length ? `<h2>Public Signals Reviewed</h2><ul>${listItems(generatedReport.publicSignals)}</ul>` : ""}
           <h2>Sources</h2>
@@ -535,7 +572,7 @@ function Report({
       )}
 
       <section className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(220px,1fr)]">
-        <OperationalGauge maturity={result.maturityScore} strain={result.riskScore} />
+        <OperationalGauge strain={result.riskScore} />
         <div className="rounded border border-line bg-panel p-4">
           <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate">Spiral stage</p>
           <p className="mt-2 text-2xl font-bold">Stage {result.stage.number}</p>
@@ -549,27 +586,47 @@ function Report({
       </section>
 
       {generatedReport && (
-        <section className="grid gap-4 md:grid-cols-2">
-          <div className="rounded border border-line p-4">
-            <h3 className="text-lg font-bold">Organization Snapshot</h3>
-            <p className="mt-2 text-sm leading-6 text-slate">{generatedReport.organizationSnapshot}</p>
-          </div>
-          <div className="rounded border border-line p-4">
-            <h3 className="text-lg font-bold">Mission Implications</h3>
-            <p className="mt-2 text-sm leading-6 text-slate">{generatedReport.missionImplications}</p>
-          </div>
+        <section className="rounded border border-line p-4">
+          <h3 className="text-lg font-bold">Organization Snapshot</h3>
+          <p className="mt-2 text-sm leading-6 text-slate">{generatedReport.organizationSnapshot}</p>
         </section>
       )}
 
       {generatedReport?.strainDiagnosis && (
         <section className="rounded border border-line bg-panel p-4">
-          <h3 className="text-lg font-bold">Operational Strain Diagnosis</h3>
+          <h3 className="text-lg font-bold">Spiral Stage Diagnosis</h3>
           <p className="mt-2 text-sm leading-6 text-slate">{generatedReport.strainDiagnosis}</p>
         </section>
       )}
 
+      {generatedReport?.primaryStrainDrivers?.length ? (
+        <section>
+          <h3 className="text-lg font-bold">Primary Strain Drivers</h3>
+          <div className="mt-3 grid gap-3">
+            {generatedReport.primaryStrainDrivers.map((driver) => (
+              <div key={driver.category} className="rounded border border-line p-4">
+                <h4 className="text-base font-bold">{driver.category}</h4>
+                <div className="mt-3 grid gap-3 text-sm leading-6 text-slate md:grid-cols-2">
+                  <p><strong className="text-ink">What the strain appears to be:</strong> {driver.strain}</p>
+                  <p><strong className="text-ink">Evidence:</strong> {driver.evidence}</p>
+                  <p><strong className="text-ink">Why it matters:</strong> {driver.whyItMatters}</p>
+                  <p><strong className="text-ink">If not addressed:</strong> {driver.consequence}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {generatedReport?.missionImplications && (
+        <section className="rounded border border-line p-4">
+          <h3 className="text-lg font-bold">Implications for the Organization</h3>
+          <p className="mt-2 text-sm leading-6 text-slate">{generatedReport.missionImplications}</p>
+        </section>
+      )}
+
       <section>
-        <h3 className="text-lg font-bold">Section Scorecard</h3>
+        <h3 className="text-lg font-bold">Section Strain Scorecard</h3>
         <div className="mt-3 grid gap-3">
           {result.domainScores.map((domain) => (
             <div key={domain.id} className="grid gap-2 rounded border border-line p-3 sm:grid-cols-[220px_1fr_72px] sm:items-center">
@@ -577,8 +634,8 @@ function Report({
                 <p className="text-sm font-bold">{domain.title}</p>
                 <p className="text-xs text-slate">{domain.answered} scored responses</p>
               </div>
-              <Meter value={domain.maturity} tone={domain.risk >= 60 ? "amber" : "teal"} />
-              <p className="text-right text-sm font-bold tabular-nums">{domain.maturity}</p>
+              <Meter value={domain.risk} />
+              <p className="text-right text-sm font-bold tabular-nums">{domain.risk}</p>
             </div>
           ))}
         </div>
@@ -586,7 +643,7 @@ function Report({
 
       <section className="grid gap-4 md:grid-cols-2">
         <div className="rounded border border-line p-4">
-          <h3 className="text-lg font-bold">Top Operational Risks</h3>
+          <h3 className="text-lg font-bold">Top Operational Strain Risks</h3>
           <ul className="mt-3 grid gap-2 text-sm leading-6 text-slate">
             {risks.map((risk) => (
               <li key={risk}>{risk}</li>
@@ -603,7 +660,7 @@ function Report({
         <div className="rounded border border-line p-4">
           <h3 className="text-lg font-bold">Staffing & Knowledge Signals</h3>
           <p className="mt-3 text-sm leading-6 text-slate">
-            Staffing strain is reflected through overtime, firefighting, bottlenecks, role coverage, and turnover visibility. Knowledge infrastructure is reflected through repository maturity, documentation access, SOP currency, onboarding readiness, and change communication.
+            Staffing strain is reflected through overtime, firefighting, bottlenecks, role coverage, and turnover visibility. Knowledge infrastructure strain is reflected through repository reliability, documentation access, SOP currency, onboarding readiness, and change communication.
           </p>
           {openConstraint && (
             <div className="mt-4 rounded border border-line bg-panel p-3">
@@ -628,10 +685,47 @@ function Report({
 
       <section className="rounded border border-line bg-blacktop p-4 text-white print:bg-white print:text-ink">
         <p className="text-xs font-bold uppercase tracking-[0.16em] text-fitgreen">Recommended FitProof engagement</p>
-        <h3 className="mt-2 text-2xl font-bold">{generatedReport?.fitProofEngagement || recommendation.cta}</h3>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-white/75 print:text-slate">
-          Schedule a FitProof Operational Capacity Review to turn the diagnostic into a prioritized operating plan.
-        </p>
+        <h3 className="mt-2 text-2xl font-bold">{generatedReport?.recommendedEngagement?.recommendedOffering || generatedReport?.fitProofEngagement || recommendation.cta}</h3>
+        {generatedReport?.recommendedEngagement ? (
+          <div className="mt-3 grid gap-3 text-sm leading-6 text-white/75 print:text-slate md:grid-cols-2">
+            <p><strong className="text-white print:text-ink">Why This Offering Fits:</strong> {generatedReport.recommendedEngagement.whyThisOfferingFits}</p>
+            <p><strong className="text-white print:text-ink">Suggested Timeline:</strong> {generatedReport.recommendedEngagement.suggestedTimeline}</p>
+            <div>
+              <p className="font-bold text-white print:text-ink">Primary Objectives:</p>
+              <ul className="mt-1 grid gap-1">
+                {generatedReport.recommendedEngagement.primaryObjectives.map((item) => <li key={item}>{item}</li>)}
+              </ul>
+            </div>
+            <div>
+              <p className="font-bold text-white print:text-ink">Initial Workplan:</p>
+              <ul className="mt-1 grid gap-1">
+                {generatedReport.recommendedEngagement.initialWorkplan.map((item) => <li key={item}>{item}</li>)}
+              </ul>
+            </div>
+            <div>
+              <p className="font-bold text-white print:text-ink">Expected Outcomes:</p>
+              <ul className="mt-1 grid gap-1">
+                {generatedReport.recommendedEngagement.expectedOutcomes.map((item) => <li key={item}>{item}</li>)}
+              </ul>
+            </div>
+            <p className="md:col-span-2"><strong className="text-white print:text-ink">Why Now:</strong> {generatedReport.recommendedEngagement.whyNow}</p>
+          </div>
+        ) : (
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-white/75 print:text-slate">
+            Schedule a FitProof Operational Strain Review to turn the diagnostic into a prioritized operating plan.
+          </p>
+        )}
+      </section>
+
+      <section className="rounded border border-line bg-mist p-4">
+        <h3 className="text-lg font-bold">Next 30-60 Days</h3>
+        <div className="mt-3 grid gap-2 md:grid-cols-2">
+          {(generatedReport?.nextSteps?.length ? generatedReport.nextSteps : actions).map((step) => (
+            <p key={step} className="rounded border border-fitgreen/40 bg-white px-3 py-2 text-sm font-semibold text-ink">
+              {step}
+            </p>
+          ))}
+        </div>
       </section>
 
       {generatedReport && (
@@ -664,9 +758,9 @@ function Report({
   );
 }
 
-function OperationalGauge({ maturity, strain }: { maturity: number; strain: number }) {
-  const clampedMaturity = Math.max(0, Math.min(100, maturity));
-  const angle = ((180 - clampedMaturity * 1.8) * Math.PI) / 180;
+function OperationalGauge({ strain }: { strain: number }) {
+  const clampedStrain = Math.max(0, Math.min(100, strain));
+  const angle = ((180 - clampedStrain * 1.8) * Math.PI) / 180;
   const centerX = 150;
   const centerY = 128;
   const pointerLength = 92;
@@ -677,22 +771,19 @@ function OperationalGauge({ maturity, strain }: { maturity: number; strain: numb
     <div className="rounded border border-line bg-panel p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate">Operational maturity</p>
-          <p className="mt-1 text-3xl font-bold tabular-nums text-fitgreen">{maturity}<span className="text-base text-slate">/100</span></p>
-        </div>
-        <div className="text-right">
           <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate">Operational strain</p>
           <p className="mt-1 text-3xl font-bold tabular-nums text-charcoal">{strain}<span className="text-base text-slate">/100</span></p>
         </div>
+        <p className="max-w-48 text-right text-xs font-semibold leading-5 text-slate">Lower scores indicate less operating pressure. Higher scores indicate more urgent strain.</p>
       </div>
 
       <div className="mt-3">
-        <svg viewBox="0 0 300 178" role="img" aria-label={`Operational maturity ${maturity} out of 100 and operational strain ${strain} out of 100`} className="h-auto w-full">
+        <svg viewBox="0 0 300 168" role="img" aria-label={`Operational strain ${strain} out of 100`} className="h-auto w-full">
           <defs>
             <linearGradient id="capacityGaugeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#d83131" />
+              <stop offset="0%" stopColor="#67a629" />
               <stop offset="50%" stopColor="#f1c232" />
-              <stop offset="100%" stopColor="#67a629" />
+              <stop offset="100%" stopColor="#d83131" />
             </linearGradient>
           </defs>
           <path d="M 34 128 A 116 116 0 0 1 266 128" fill="none" stroke="#d8ddd3" strokeWidth="18" strokeLinecap="round" />
@@ -700,14 +791,12 @@ function OperationalGauge({ maturity, strain }: { maturity: number; strain: numb
           <line x1={centerX} y1={centerY} x2={pointerX} y2={pointerY} stroke="#111111" strokeWidth="4" strokeLinecap="round" />
           <circle cx={centerX} cy={centerY} r="8" fill="#111111" />
           <circle cx={pointerX} cy={pointerY} r="7" fill="#ffffff" stroke="#111111" strokeWidth="3" />
-          <text x="30" y="150" fontSize="12" fontWeight="700" fill="#4b5563">0 maturity</text>
-          <text x="214" y="150" fontSize="12" fontWeight="700" fill="#4b5563">100 maturity</text>
-          <text x="30" y="171" fontSize="12" fontWeight="700" fill="#4b5563">100 strain</text>
-          <text x="224" y="171" fontSize="12" fontWeight="700" fill="#4b5563">0 strain</text>
+          <text x="30" y="153" fontSize="12" fontWeight="700" fill="#4b5563">0 low strain</text>
+          <text x="207" y="153" fontSize="12" fontWeight="700" fill="#4b5563">100 severe strain</text>
         </svg>
       </div>
       <p className="mt-2 text-sm leading-6 text-slate">
-        Maturity and strain are shown on the same scale because they move in opposite directions: as operating maturity rises, strain falls.
+        The pointer shows where the organization sits on the operational strain scale based on the completed assessment.
       </p>
     </div>
   );

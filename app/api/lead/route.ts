@@ -7,7 +7,6 @@ export async function POST(request: Request) {
     email: payload.lead?.email,
     organization: payload.profile?.organization,
     riskScore: payload.result?.riskScore,
-    maturityScore: payload.result?.maturityScore,
     stage: payload.result?.stage?.number
   });
 

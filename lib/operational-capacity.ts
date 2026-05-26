@@ -36,7 +36,6 @@ export type Responses = Record<string, string | string[]>;
 
 export type DomainScore = Domain & {
   risk: number;
-  maturity: number;
   weightedRisk: number;
   answered: number;
 };
@@ -51,11 +50,28 @@ export type Stage = {
 
 export type AssessmentResult = {
   riskScore: number;
-  maturityScore: number;
   stage: Stage;
   domainScores: DomainScore[];
   topRiskDomains: DomainScore[];
   flags: string[];
+};
+
+export type PrimaryStrainDriver = {
+  category: string;
+  strain: string;
+  evidence: string;
+  whyItMatters: string;
+  consequence: string;
+};
+
+export type RecommendedEngagement = {
+  recommendedOffering: string;
+  whyThisOfferingFits: string;
+  primaryObjectives: string[];
+  initialWorkplan: string[];
+  expectedOutcomes: string[];
+  suggestedTimeline: string;
+  whyNow: string;
 };
 
 export type GeneratedExecutiveReport = {
@@ -65,9 +81,12 @@ export type GeneratedExecutiveReport = {
   organizationSnapshot: string;
   strainDiagnosis: string;
   missionImplications: string;
+  primaryStrainDrivers?: PrimaryStrainDriver[];
   topRisks: string[];
   recommendations: string[];
   fitProofEngagement: string;
+  recommendedEngagement?: RecommendedEngagement;
+  nextSteps?: string[];
   publicSignals: string[];
   sources: { title: string; url: string }[];
 };
@@ -99,11 +118,11 @@ const easePositive = [
 export const domains: Domain[] = [
   { id: "context", title: "Operational Complexity Context", shortTitle: "Context", weight: 10, purpose: "Demand, scale, revenue stream complexity, and pressure on the operating model." },
   { id: "systems", title: "Systems & Infrastructure", shortTitle: "Systems", weight: 16, purpose: "Integration, data reliability, system fragmentation, and manual workarounds." },
-  { id: "process", title: "Process & Workflow Maturity", shortTitle: "Process", weight: 14, purpose: "Documentation, handoffs, repeatability, and workflow scalability." },
+  { id: "process", title: "Process & Workflow Stability", shortTitle: "Process", weight: 14, purpose: "Documentation, handoffs, repeatability, and workflow scalability." },
   { id: "staffing", title: "Staffing Capacity Indicators", shortTitle: "Staffing", weight: 16, purpose: "Overtime, firefighting, bottlenecks, responsiveness, role coverage, and turnover." },
-  { id: "knowledge", title: "Knowledge Infrastructure", shortTitle: "Knowledge", weight: 12, purpose: "Repository maturity, documentation access, SOP currency, and onboarding readiness." },
+  { id: "knowledge", title: "Knowledge Infrastructure", shortTitle: "Knowledge", weight: 12, purpose: "Repository reliability, documentation access, SOP currency, and onboarding readiness." },
   { id: "visibility", title: "Visibility & Decision-Making", shortTitle: "Visibility", weight: 14, purpose: "Dashboards, KPI confidence, reporting consistency, forecasting, and board reporting." },
-  { id: "sustainability", title: "Sustainability & Mission Risk", shortTitle: "Mission Risk", weight: 18, purpose: "Program cuts, staffing gaps, restructuring risk, growth confidence, and mission impact." }
+  { id: "sustainability", title: "Sustainability & Mission Strain", shortTitle: "Mission Strain", weight: 18, purpose: "Program cuts, staffing gaps, restructuring risk, growth confidence, and mission impact." }
 ];
 
 export const questions: Question[] = [
@@ -171,7 +190,7 @@ export const questions: Question[] = [
 export const unknownOption: AnswerOption = { label: "I don't know", risk: 2 };
 
 export const stages: Stage[] = [
-  { number: 1, name: "Emerging Friction", min: 0, max: 14, interpretation: "Complexity is beginning to outgrow process maturity, but risks are still manageable." },
+  { number: 1, name: "Emerging Friction", min: 0, max: 14, interpretation: "Complexity is beginning to create operating friction, but strain signals are still manageable." },
   { number: 2, name: "Operational Dependency", min: 15, max: 29, interpretation: "Individuals are beginning to compensate for gaps in systems, documentation, and process." },
   { number: 3, name: "Capacity Strain", min: 30, max: 44, interpretation: "Operational workload is exceeding sustainable capacity and teams are increasingly reactive." },
   { number: 4, name: "Knowledge Fragmentation", min: 45, max: 59, interpretation: "Documentation, handoffs, and reporting consistency are weakening organizational continuity." },
@@ -181,13 +200,13 @@ export const stages: Stage[] = [
 ];
 
 export const stageRecommendations: Record<number, { primary: string; cta: string; actions: string[] }> = {
-  1: { primary: "Standardize processes before friction compounds.", cta: "Operational Capacity Review", actions: ["Document critical workflows", "Define KPI owners", "Clarify process handoffs", "Automate one recurring reporting task", "Review system ownership quarterly"] },
-  2: { primary: "Reduce dependency on individuals.", cta: "Dependency Risk Review", actions: ["Map workflow owners", "Build a central knowledge repository", "Prioritize SOPs for fragile processes", "Create backup ownership for critical roles", "Define onboarding-ready documentation"] },
-  3: { primary: "Increase sustainable capacity.", cta: "Capacity Optimization Assessment", actions: ["Identify top bottlenecks", "Reduce duplicate data entry", "Review workload visibility", "Clarify role boundaries", "Set a triage rhythm for demand spikes"] },
-  4: { primary: "Rebuild knowledge infrastructure.", cta: "Knowledge Infrastructure Sprint", actions: ["Centralize operating guidance", "Stabilize handoffs", "Refresh outdated SOPs", "Improve onboarding readiness", "Create a change communication standard"] },
-  5: { primary: "Attack compounding inefficiency.", cta: "Revenue & Operations Optimization Program", actions: ["Map cross-team workflows", "Eliminate duplicate work", "Integrate fragmented systems", "Rebuild reporting architecture", "Create a dashboard governance model"] },
-  6: { primary: "Protect mission capacity.", cta: "Mission Capacity Stabilization Engagement", actions: ["Run immediate operational triage", "Stabilize service-critical workflows", "Create board-ready action planning", "Prioritize capacity restoration", "Resolve visibility gaps affecting mission decisions"] },
-  7: { primary: "Stabilize the operating model.", cta: "Executive Operational Stabilization Review", actions: ["Stand up executive intervention cadence", "Protect essential services", "Create a restructure support plan", "Triage systems and staffing risks", "Restore urgent capacity before growth work resumes"] }
+  1: { primary: "Standardize operating practices before friction compounds.", cta: "Operational Readiness Assessment", actions: ["Document critical workflows", "Define KPI owners", "Clarify process handoffs", "Automate one recurring reporting task", "Review system ownership quarterly"] },
+  2: { primary: "Reduce dependency on individual workarounds.", cta: "Revenue Operations Diagnostic", actions: ["Map workflow owners", "Identify revenue and reporting handoffs", "Prioritize fragile processes", "Create backup ownership for critical roles", "Define decision-ready documentation"] },
+  3: { primary: "Stabilize the knowledge layer that supports daily execution.", cta: "Knowledge Infrastructure & Process Stabilization Sprint", actions: ["Centralize operating guidance", "Stabilize handoffs", "Refresh outdated SOPs", "Improve onboarding readiness", "Create a change communication standard"] },
+  4: { primary: "Stabilize workflow breakdowns before they become organization-wide drag.", cta: "Operational Stabilization & Revenue Process Optimization Engagement", actions: ["Map cross-team workflows", "Eliminate duplicate work", "Integrate fragmented systems", "Rebuild reporting architecture", "Create a dashboard governance model"] },
+  5: { primary: "Reduce executive bottlenecks and restore decision throughput.", cta: "Executive Operating System & Decision Infrastructure Engagement", actions: ["Clarify decision rights", "Create an executive operating cadence", "Build board-ready visibility", "Define escalation standards", "Create ownership for cross-functional priorities"] },
+  6: { primary: "Move from reactive operations into controlled stabilization.", cta: "Full Operational Turnaround Readiness Engagement", actions: ["Run immediate operational triage", "Stabilize service-critical workflows", "Create board-ready action planning", "Prioritize capacity restoration", "Resolve visibility gaps affecting mission decisions"] },
+  7: { primary: "Reset the operating model around mission-critical continuity.", cta: "Mission-Critical Operating Model Reset", actions: ["Stand up executive intervention cadence", "Protect essential services", "Create a restructure support plan", "Triage systems and staffing risks", "Restore urgent capacity before growth work resumes"] }
 };
 
 function clamp(value: number) {
@@ -226,7 +245,6 @@ export function scoreAssessment(responses: Responses): AssessmentResult {
     return {
       ...domain,
       risk,
-      maturity: 100 - risk,
       weightedRisk: (risk * domain.weight) / 100,
       answered: risks.length
     };
@@ -241,7 +259,6 @@ export function scoreAssessment(responses: Responses): AssessmentResult {
 
   return {
     riskScore,
-    maturityScore: 100 - riskScore,
     stage,
     domainScores,
     topRiskDomains,
@@ -271,7 +288,7 @@ export function generateExecutiveSummary(profile: Profile, result: AssessmentRes
   const org = profile.organization || "The organization";
   const topDomains = result.topRiskDomains.map((domain) => domain.shortTitle).join(", ");
 
-  return `${org} is currently assessed at Stage ${result.stage.number}: ${result.stage.name}, with an operational maturity score of ${result.maturityScore}/100 and a risk score of ${result.riskScore}/100. The strongest strain signals are concentrated in ${topDomains || "the assessed operating sections"}. ${result.stage.interpretation} The recommended path is to address the highest-risk operating constraints first, then convert those fixes into repeatable systems, ownership, and reporting practices.`;
+  return `${org} is currently assessed at Stage ${result.stage.number}: ${result.stage.name}, with an operational strain score of ${result.riskScore}/100. The strongest strain signals are concentrated in ${topDomains || "the assessed operating sections"}. ${result.stage.interpretation} The recommended path is to address the highest-strain operating constraints first, then convert those fixes into repeatable systems, ownership, and reporting practices.`;
 }
 
 export function generateRisks(result: AssessmentResult) {
