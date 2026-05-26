@@ -102,6 +102,7 @@ export default function Home() {
   const [generatedReport, setGeneratedReport] = useState<GeneratedExecutiveReport | null>(null);
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [reportError, setReportError] = useState("");
+  const [showSectionValidation, setShowSectionValidation] = useState(false);
   const result = useMemo(() => scoreAssessment(responses), [responses]);
   const completed = questions.filter((question) => hasAnswer(question, responses)).length;
   const progress = Math.round((completed / questions.length) * 100);
@@ -163,6 +164,52 @@ export default function Home() {
 
   const section = domains[currentStep];
   const sectionQuestions = questions.filter((question) => question.domainId === section.id);
+  const sectionComplete = sectionQuestions.every((question) => hasAnswer(question, responses));
+  const missingInSection = sectionQuestions.filter((question) => !hasAnswer(question, responses)).length;
+
+  function isSectionComplete(sectionIndex: number) {
+    const targetSection = domains[sectionIndex];
+    return questions.filter((question) => question.domainId === targetSection.id).every((question) => hasAnswer(question, responses));
+  }
+
+  function goToSection(sectionIndex: number) {
+    if (sectionIndex <= currentStep) {
+      setCurrentStep(sectionIndex);
+      setShowSectionValidation(false);
+      setOpenPicklistId(null);
+      return;
+    }
+
+    const firstIncompleteSection = domains.findIndex((_, index) => index < sectionIndex && !isSectionComplete(index));
+
+    if (firstIncompleteSection >= 0) {
+      setCurrentStep(firstIncompleteSection);
+      setShowSectionValidation(true);
+      setOpenPicklistId(null);
+      return;
+    }
+
+    setCurrentStep(sectionIndex);
+    setShowSectionValidation(false);
+    setOpenPicklistId(null);
+  }
+
+  function goForward() {
+    if (!sectionComplete) {
+      setShowSectionValidation(true);
+      return;
+    }
+
+    setShowSectionValidation(false);
+    setOpenPicklistId(null);
+
+    if (currentStep === domains.length - 1) {
+      setView("lead");
+      return;
+    }
+
+    setCurrentStep(currentStep + 1);
+  }
 
   return (
     <main className="min-h-screen bg-cream text-ink">
@@ -210,7 +257,7 @@ export default function Home() {
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => setCurrentStep(index)}
+                    onClick={() => goToSection(index)}
                     className={`mb-1 grid w-full grid-cols-[30px_1fr] items-center gap-2 rounded px-2 py-2 text-left text-sm transition ${
                       index === currentStep ? "bg-mist font-bold text-ink" : "text-slate hover:bg-panel hover:text-ink"
                     }`}
@@ -228,93 +275,111 @@ export default function Home() {
                   <p className="text-xs font-bold uppercase tracking-[0.16em] text-fitgreen">Section weight {section.weight}%</p>
                   <h2 className="mt-1 text-xl font-bold tracking-tight">{section.title}</h2>
                   <p className="mt-1 text-sm leading-6 text-slate">{section.purpose}</p>
+                  {showSectionValidation && !sectionComplete && (
+                    <p className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
+                      Please answer all questions in this section to continue. {missingInSection} remaining.
+                    </p>
+                  )}
                 </div>
 
                 <div className="mt-4 grid gap-4">
-                  {sectionQuestions.map((question) => (
-                    <div key={question.id} className="rounded border border-line bg-panel p-3">
-                      <p className="text-sm font-semibold leading-6">
-                        <span className="mr-2 inline-grid size-6 place-items-center rounded bg-blacktop text-xs font-bold text-fitgreen">
-                          {questionNumbers[question.id]}
-                        </span>
-                        {question.prompt}
-                      </p>
-                      {question.type === "text" ? (
-                        <textarea
-                          value={(responses[question.id] as string) || ""}
-                          onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setAnswer(question, event.target.value)}
-                          rows={4}
-                          className="mt-3 w-full rounded border border-line bg-white px-3 py-2 text-sm leading-6 outline-none focus:border-fitgreen focus:ring-4 focus:ring-fitgreen/20"
-                        />
-                      ) : (
-                        <>
-                          {question.type === "multi" ? (
-                            <div className="relative mt-3">
-                              <button
-                                type="button"
-                                onClick={() => setOpenPicklistId(openPicklistId === question.id ? null : question.id)}
-                                className="flex min-h-11 w-full items-center justify-between gap-3 rounded border border-line bg-white px-3 py-2 text-left text-sm font-semibold text-ink outline-none transition hover:border-fitgreen focus:border-fitgreen focus:ring-4 focus:ring-fitgreen/20"
-                                aria-expanded={openPicklistId === question.id}
+                  {sectionQuestions.map((question) => {
+                    const missing = showSectionValidation && !hasAnswer(question, responses);
+                    const fieldStateClass = missing ? "border-red-400 focus:border-red-500 focus:ring-red-100" : "border-line focus:border-fitgreen focus:ring-fitgreen/20";
+
+                    return (
+                      <div key={question.id} className={`rounded border bg-panel p-3 ${missing ? "border-red-300" : "border-line"}`}>
+                        <p className="text-sm font-semibold leading-6">
+                          <span className="mr-2 inline-grid size-6 place-items-center rounded bg-blacktop text-xs font-bold text-fitgreen">
+                            {questionNumbers[question.id]}
+                          </span>
+                          {question.prompt}
+                        </p>
+                        {question.type === "text" ? (
+                          <textarea
+                            value={(responses[question.id] as string) || ""}
+                            onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setAnswer(question, event.target.value)}
+                            rows={4}
+                            aria-invalid={missing}
+                            className={`mt-3 w-full rounded border bg-white px-3 py-2 text-sm leading-6 outline-none focus:ring-4 ${fieldStateClass}`}
+                          />
+                        ) : (
+                          <>
+                            {question.type === "multi" ? (
+                              <div className="relative mt-3">
+                                <button
+                                  type="button"
+                                  onClick={() => setOpenPicklistId(openPicklistId === question.id ? null : question.id)}
+                                  className={`flex min-h-11 w-full items-center justify-between gap-3 rounded border bg-white px-3 py-2 text-left text-sm font-semibold text-ink outline-none transition hover:border-fitgreen focus:ring-4 ${fieldStateClass}`}
+                                  aria-expanded={openPicklistId === question.id}
+                                  aria-invalid={missing}
+                                >
+                                  <span>
+                                    {Array.isArray(responses[question.id]) && (responses[question.id] as string[]).length > 0
+                                      ? (responses[question.id] as string[]).join(", ")
+                                      : "Select one or more responses"}
+                                  </span>
+                                  <span className="text-xs text-slate">{openPicklistId === question.id ? "Close" : "Open"}</span>
+                                </button>
+
+                                {openPicklistId === question.id && (
+                                  <div className="absolute z-10 mt-2 grid max-h-72 w-full gap-1 overflow-y-auto rounded border border-line bg-white p-2 shadow-soft">
+                                    {getQuestionOptions(question).map((option) => {
+                                      const selected = Array.isArray(responses[question.id]) && (responses[question.id] as string[]).includes(option.label);
+
+                                      return (
+                                        <label key={option.label} className="flex min-h-10 cursor-pointer items-center gap-3 rounded px-2 py-2 text-sm font-semibold text-ink hover:bg-mist">
+                                          <input
+                                            type="checkbox"
+                                            checked={selected}
+                                            onChange={() => toggleMultiAnswer(question, option.label)}
+                                            className="size-4 accent-fitgreen"
+                                          />
+                                          <span>{option.label}</span>
+                                        </label>
+                                      );
+                                    })}
+                                    <button
+                                      type="button"
+                                      onClick={() => setOpenPicklistId(null)}
+                                      className="mt-1 min-h-10 rounded bg-blacktop px-3 text-sm font-bold text-fitgreen transition hover:bg-fitgreen hover:text-blacktop"
+                                    >
+                                      Done
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <select
+                                value={(responses[question.id] as string) || ""}
+                                onChange={(event: ChangeEvent<HTMLSelectElement>) => setAnswer(question, event.target.value)}
+                                aria-invalid={missing}
+                                className={`mt-3 min-h-11 w-full rounded border bg-white px-3 py-2 text-sm font-semibold text-ink outline-none transition focus:ring-4 ${fieldStateClass}`}
                               >
-                                <span>
-                                  {Array.isArray(responses[question.id]) && (responses[question.id] as string[]).length > 0
-                                    ? (responses[question.id] as string[]).join(", ")
-                                    : "Select one or more responses"}
-                                </span>
-                                <span className="text-xs text-slate">{openPicklistId === question.id ? "Close" : "Open"}</span>
-                              </button>
-
-                              {openPicklistId === question.id && (
-                                <div className="absolute z-10 mt-2 grid max-h-72 w-full gap-1 overflow-y-auto rounded border border-line bg-white p-2 shadow-soft">
-                                  {getQuestionOptions(question).map((option) => {
-                                    const selected = Array.isArray(responses[question.id]) && (responses[question.id] as string[]).includes(option.label);
-
-                                    return (
-                                      <label key={option.label} className="flex min-h-10 cursor-pointer items-center gap-3 rounded px-2 py-2 text-sm font-semibold text-ink hover:bg-mist">
-                                        <input
-                                          type="checkbox"
-                                          checked={selected}
-                                          onChange={() => toggleMultiAnswer(question, option.label)}
-                                          className="size-4 accent-fitgreen"
-                                        />
-                                        <span>{option.label}</span>
-                                      </label>
-                                    );
-                                  })}
-                                  <button
-                                    type="button"
-                                    onClick={() => setOpenPicklistId(null)}
-                                    className="mt-1 min-h-10 rounded bg-blacktop px-3 text-sm font-bold text-fitgreen transition hover:bg-fitgreen hover:text-blacktop"
-                                  >
-                                    Done
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            <select
-                              value={(responses[question.id] as string) || ""}
-                              onChange={(event: ChangeEvent<HTMLSelectElement>) => setAnswer(question, event.target.value)}
-                              className="mt-3 min-h-11 w-full rounded border border-line bg-white px-3 py-2 text-sm font-semibold text-ink outline-none transition focus:border-fitgreen focus:ring-4 focus:ring-fitgreen/20"
-                            >
-                              <option value="">Select a response</option>
-                              {getQuestionOptions(question).map((option) => (
-                                <option key={option.label} value={option.label}>
-                                  {option.label}
-                                </option>
-                              ))}
-                            </select>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  ))}
+                                <option value="">Select a response</option>
+                                {getQuestionOptions(question).map((option) => (
+                                  <option key={option.label} value={option.label}>
+                                    {option.label}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                          </>
+                        )}
+                        {missing && <p className="mt-2 text-xs font-bold uppercase tracking-[0.12em] text-red-700">Required</p>}
+                      </div>
+                    );
+                  })}
                 </div>
 
                 <div className="mt-5 flex flex-col gap-3 border-t border-line pt-4 sm:flex-row sm:justify-between">
                   <button
                     type="button"
-                    onClick={() => setCurrentStep(Math.max(0, currentStep - 1))}
+                    onClick={() => {
+                      setCurrentStep(Math.max(0, currentStep - 1));
+                      setShowSectionValidation(false);
+                      setOpenPicklistId(null);
+                    }}
                     disabled={currentStep === 0}
                     className="min-h-11 rounded border border-line px-4 text-sm font-bold transition hover:border-fitgreen disabled:cursor-not-allowed disabled:opacity-40"
                   >
@@ -322,7 +387,7 @@ export default function Home() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => (currentStep === domains.length - 1 ? setView("lead") : setCurrentStep(currentStep + 1))}
+                    onClick={goForward}
                     className="min-h-11 rounded bg-fitgreen px-4 text-sm font-bold text-blacktop transition hover:bg-blacktop hover:text-fitgreen"
                   >
                     {currentStep === domains.length - 1 ? "Continue to findings and report" : "Next section"}
@@ -777,7 +842,7 @@ function OperationalGauge({ strain }: { strain: number }) {
         <p className="max-w-48 text-right text-xs font-semibold leading-5 text-slate">Lower scores indicate less operating pressure. Higher scores indicate more urgent strain.</p>
       </div>
 
-      <div className="mt-3">
+      <div className="mx-auto mt-3 w-[66%]">
         <svg viewBox="0 0 300 168" role="img" aria-label={`Operational strain ${strain} out of 100`} className="h-auto w-full">
           <defs>
             <linearGradient id="capacityGaugeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -792,7 +857,7 @@ function OperationalGauge({ strain }: { strain: number }) {
           <circle cx={centerX} cy={centerY} r="8" fill="#111111" />
           <circle cx={pointerX} cy={pointerY} r="7" fill="#ffffff" stroke="#111111" strokeWidth="3" />
           <text x="30" y="153" fontSize="12" fontWeight="700" fill="#4b5563">0 low strain</text>
-          <text x="207" y="153" fontSize="12" fontWeight="700" fill="#4b5563">100 severe strain</text>
+          <text x="270" y="153" textAnchor="end" fontSize="12" fontWeight="700" fill="#4b5563">100 severe strain</text>
         </svg>
       </div>
       <p className="mt-2 text-sm leading-6 text-slate">
