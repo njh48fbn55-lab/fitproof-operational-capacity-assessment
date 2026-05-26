@@ -42,6 +42,19 @@ function Meter({ value, tone = "teal" }: { value: number; tone?: "teal" | "amber
   );
 }
 
+function escapeHtml(value: string | number | undefined | null) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function listItems(items: string[]) {
+  return items.length ? items.map((item) => `<li>${escapeHtml(item)}</li>`).join("") : "<li>No items available.</li>";
+}
+
 function Field({
   label,
   value,
@@ -170,20 +183,6 @@ export default function Home() {
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-white/15">
               <div className="h-full rounded-full bg-fitgreen transition-all" style={{ width: `${progress}%` }} />
-            </div>
-            <div className="mt-2 grid grid-cols-3 gap-2 text-center">
-              <div className="rounded border border-white/10 bg-white/5 px-3 py-2">
-                <p className="text-xs uppercase tracking-[0.12em] text-white/55">Risk</p>
-                <p className="mt-1 text-lg font-bold">{result.riskScore}</p>
-              </div>
-              <div className="rounded border border-white/10 bg-white/5 px-3 py-2">
-                <p className="text-xs uppercase tracking-[0.12em] text-white/55">Maturity</p>
-                <p className="mt-1 text-lg font-bold">{result.maturityScore}</p>
-              </div>
-              <div className="rounded border border-white/10 bg-white/5 px-3 py-2">
-                <p className="text-xs uppercase tracking-[0.12em] text-white/55">Stage</p>
-                <p className="mt-1 text-lg font-bold">{result.stage.number}</p>
-              </div>
             </div>
           </div>
         </div>
@@ -320,7 +319,7 @@ export default function Home() {
                     onClick={() => (currentStep === domains.length - 1 ? setView("lead") : setCurrentStep(currentStep + 1))}
                     className="min-h-11 rounded bg-fitgreen px-4 text-sm font-bold text-blacktop transition hover:bg-blacktop hover:text-fitgreen"
                   >
-                    {currentStep === domains.length - 1 ? "Continue to lead capture" : "Next section"}
+                    {currentStep === domains.length - 1 ? "Continue to findings and report" : "Next section"}
                   </button>
                 </div>
               </section>
@@ -409,33 +408,115 @@ function Report({
   const date = new Intl.DateTimeFormat("en", { month: "long", day: "numeric", year: "numeric" }).format(new Date());
   const reportId = `FP-OCA-${date.replace(/[^A-Za-z0-9]/g, "").toUpperCase()}`;
 
-  function downloadPdf() {
-    const previousTitle = document.title;
-    document.title = `${profile.organization || "FitProof"} Operational Capacity Report`;
-    window.print();
-    window.setTimeout(() => {
-      document.title = previousTitle;
-    }, 500);
+  function downloadWordReport() {
+    const organization = profile.organization || "Organization";
+    const fileName = `${organization.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "fitproof"}-operational-capacity-report.doc`;
+    const sectionRows = result.domainScores
+      .map(
+        (domain) => `
+          <tr>
+            <td>${escapeHtml(domain.title)}</td>
+            <td>${escapeHtml(domain.maturity)}/100</td>
+            <td>${escapeHtml(domain.risk)}/100</td>
+            <td>${escapeHtml(domain.answered)}</td>
+          </tr>
+        `
+      )
+      .join("");
+    const sourceItems = generatedReport?.sources?.length
+      ? generatedReport.sources.map((source) => `<li>${escapeHtml(source.title)}: ${escapeHtml(source.url)}</li>`).join("")
+      : "<li>No public website sources were available.</li>";
+
+    const html = `
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>${escapeHtml(organization)} Operational Capacity Report</title>
+          <style>
+            body { font-family: Arial, sans-serif; color: #111111; line-height: 1.45; }
+            h1, h2, h3 { color: #111111; }
+            h1 { font-size: 28px; margin-bottom: 4px; }
+            h2 { font-size: 18px; margin-top: 24px; border-bottom: 1px solid #d8ddd3; padding-bottom: 5px; }
+            h3 { font-size: 15px; margin-bottom: 4px; }
+            p, li, td, th { font-size: 12px; }
+            .eyebrow { color: #67a629; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
+            .meta { color: #4b5563; font-size: 11px; }
+            .score { display: inline-block; margin-right: 18px; font-weight: bold; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+            th, td { border: 1px solid #d8ddd3; padding: 7px; text-align: left; vertical-align: top; }
+            th { background: #f2f5ef; }
+          </style>
+        </head>
+        <body>
+          <p class="eyebrow">FitProof Executive Diagnostic</p>
+          <h1>Operational Capacity Report</h1>
+          <p class="meta">${escapeHtml(organization)} | ${escapeHtml(date)} | Report ID ${escapeHtml(reportId)}</p>
+          <p class="meta">Email verified: ${escapeHtml(lead.email || "Not provided")}</p>
+          <p class="meta">Website reviewed: ${escapeHtml(profile.websiteUrl || "Not provided")}</p>
+
+          <h2>Executive Summary</h2>
+          <p>${escapeHtml(summary)}</p>
+
+          <h2>Score Profile</h2>
+          <p><span class="score">Operational maturity: ${escapeHtml(result.maturityScore)}/100</span><span class="score">Operational strain: ${escapeHtml(result.riskScore)}/100</span><span class="score">Stage ${escapeHtml(result.stage.number)}: ${escapeHtml(result.stage.name)}</span></p>
+
+          ${generatedReport?.organizationSnapshot ? `<h2>Organization Snapshot</h2><p>${escapeHtml(generatedReport.organizationSnapshot)}</p>` : ""}
+          ${generatedReport?.missionImplications ? `<h2>Mission Implications</h2><p>${escapeHtml(generatedReport.missionImplications)}</p>` : ""}
+          ${generatedReport?.strainDiagnosis ? `<h2>Operational Strain Diagnosis</h2><p>${escapeHtml(generatedReport.strainDiagnosis)}</p>` : ""}
+
+          <h2>Section Scorecard</h2>
+          <table>
+            <thead><tr><th>Section</th><th>Maturity</th><th>Strain</th><th>Responses</th></tr></thead>
+            <tbody>${sectionRows}</tbody>
+          </table>
+
+          <h2>Top Operational Risks</h2>
+          <ul>${listItems(risks)}</ul>
+
+          <h2>How to Interrupt the Spiral</h2>
+          <p>${escapeHtml(recommendation.primary)}</p>
+          <ul>${listItems(actions)}</ul>
+
+          <h2>Recommended FitProof Engagement</h2>
+          <p>${escapeHtml(generatedReport?.fitProofEngagement || recommendation.cta)}</p>
+
+          ${generatedReport?.publicSignals?.length ? `<h2>Public Signals Reviewed</h2><ul>${listItems(generatedReport.publicSignals)}</ul>` : ""}
+          <h2>Sources</h2>
+          <ul>${sourceItems}</ul>
+        </body>
+      </html>
+    `;
+
+    const blob = new Blob(["\ufeff", html], { type: "application/msword;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 500);
   }
 
   return (
     <article id="generated-report" className="mx-auto grid max-w-5xl gap-5 rounded border border-line bg-white p-5 shadow-soft print:border-0 print:p-0 print:shadow-none">
       <div className="flex flex-col gap-4 border-b border-line pb-5 sm:flex-row sm:items-start sm:justify-between">
-        <div className="grid gap-3 sm:grid-cols-[96px_1fr] sm:items-start">
+        <div className="grid gap-4 sm:grid-cols-[140px_1fr] sm:items-start">
           <span className="grid h-16 w-28 place-items-center rounded border border-line bg-white px-3">
             <img src="/fitproof-logo-trimmed.png" alt="FitProof" className="h-11 w-auto object-contain" />
           </span>
-          <div>
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-fitgreen">Executive diagnostic</p>
-          <h2 className="mt-1 text-3xl font-bold lowercase tracking-tight">operational capacity report</h2>
-          <p className="mt-2 text-sm text-slate">{profile.organization || "Organization"} • {date}</p>
-          <p className="mt-1 text-xs font-bold uppercase tracking-[0.12em] text-slate">Report ID {reportId}</p>
-          {leadSaved && <p className="mt-2 text-xs font-bold uppercase tracking-[0.12em] text-fitgreen">Email verified: {lead.email}</p>}
-          {profile.websiteUrl && <p className="mt-1 text-xs font-bold uppercase tracking-[0.12em] text-slate">Website reviewed: {profile.websiteUrl}</p>}
+          <div className="sm:pl-6">
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-fitgreen">Executive diagnostic</p>
+            <h2 className="mt-1 text-3xl font-bold lowercase tracking-tight">operational capacity report</h2>
+            <p className="mt-2 text-sm text-slate">{profile.organization || "Organization"} • {date}</p>
+            <p className="mt-1 text-xs font-bold uppercase tracking-[0.12em] text-slate">Report ID {reportId}</p>
+            {leadSaved && <p className="mt-2 text-xs font-bold uppercase tracking-[0.12em] text-fitgreen">Email verified: {lead.email}</p>}
+            {profile.websiteUrl && <p className="mt-1 text-xs font-bold uppercase tracking-[0.12em] text-slate">Website reviewed: {profile.websiteUrl}</p>}
           </div>
         </div>
-        <button type="button" onClick={downloadPdf} className="min-h-11 rounded bg-blacktop px-4 text-sm font-bold text-fitgreen transition hover:bg-fitgreen hover:text-blacktop print:hidden">
-          Download PDF
+        <button type="button" onClick={downloadWordReport} className="min-h-11 rounded bg-blacktop px-4 text-sm font-bold text-fitgreen transition hover:bg-fitgreen hover:text-blacktop print:hidden">
+          Download Word Report
         </button>
       </div>
 
@@ -453,9 +534,8 @@ function Report({
         </section>
       )}
 
-      <section className="grid gap-3 md:grid-cols-3">
-        <ScoreCard label="Operational maturity" value={result.maturityScore} suffix="/100" />
-        <ScoreCard label="Operational strain risk" value={result.riskScore} suffix="/100" tone="amber" />
+      <section className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(220px,1fr)]">
+        <OperationalGauge maturity={result.maturityScore} strain={result.riskScore} />
         <div className="rounded border border-line bg-panel p-4">
           <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate">Spiral stage</p>
           <p className="mt-2 text-2xl font-bold">Stage {result.stage.number}</p>
@@ -584,13 +664,50 @@ function Report({
   );
 }
 
-function ScoreCard({ label, value, suffix, tone = "teal" }: { label: string; value: number; suffix: string; tone?: "teal" | "amber" }) {
+function OperationalGauge({ maturity, strain }: { maturity: number; strain: number }) {
+  const clampedMaturity = Math.max(0, Math.min(100, maturity));
+  const angle = ((180 - clampedMaturity * 1.8) * Math.PI) / 180;
+  const centerX = 150;
+  const centerY = 128;
+  const pointerLength = 92;
+  const pointerX = centerX + Math.cos(angle) * pointerLength;
+  const pointerY = centerY - Math.sin(angle) * pointerLength;
+
   return (
     <div className="rounded border border-line bg-panel p-4">
-      <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate">{label}</p>
-      <p className={`mt-2 text-4xl font-bold tabular-nums ${tone === "amber" ? "text-charcoal" : "text-fitgreen"}`}>
-        {value}
-        <span className="text-lg text-slate">{suffix}</span>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate">Operational maturity</p>
+          <p className="mt-1 text-3xl font-bold tabular-nums text-fitgreen">{maturity}<span className="text-base text-slate">/100</span></p>
+        </div>
+        <div className="text-right">
+          <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate">Operational strain</p>
+          <p className="mt-1 text-3xl font-bold tabular-nums text-charcoal">{strain}<span className="text-base text-slate">/100</span></p>
+        </div>
+      </div>
+
+      <div className="mt-3">
+        <svg viewBox="0 0 300 178" role="img" aria-label={`Operational maturity ${maturity} out of 100 and operational strain ${strain} out of 100`} className="h-auto w-full">
+          <defs>
+            <linearGradient id="capacityGaugeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+              <stop offset="0%" stopColor="#d83131" />
+              <stop offset="50%" stopColor="#f1c232" />
+              <stop offset="100%" stopColor="#67a629" />
+            </linearGradient>
+          </defs>
+          <path d="M 34 128 A 116 116 0 0 1 266 128" fill="none" stroke="#d8ddd3" strokeWidth="18" strokeLinecap="round" />
+          <path d="M 34 128 A 116 116 0 0 1 266 128" fill="none" stroke="url(#capacityGaugeGradient)" strokeWidth="18" strokeLinecap="round" />
+          <line x1={centerX} y1={centerY} x2={pointerX} y2={pointerY} stroke="#111111" strokeWidth="4" strokeLinecap="round" />
+          <circle cx={centerX} cy={centerY} r="8" fill="#111111" />
+          <circle cx={pointerX} cy={pointerY} r="7" fill="#ffffff" stroke="#111111" strokeWidth="3" />
+          <text x="30" y="150" fontSize="12" fontWeight="700" fill="#4b5563">0 maturity</text>
+          <text x="214" y="150" fontSize="12" fontWeight="700" fill="#4b5563">100 maturity</text>
+          <text x="30" y="171" fontSize="12" fontWeight="700" fill="#4b5563">100 strain</text>
+          <text x="224" y="171" fontSize="12" fontWeight="700" fill="#4b5563">0 strain</text>
+        </svg>
+      </div>
+      <p className="mt-2 text-sm leading-6 text-slate">
+        Maturity and strain are shown on the same scale because they move in opposite directions: as operating maturity rises, strain falls.
       </p>
     </div>
   );
