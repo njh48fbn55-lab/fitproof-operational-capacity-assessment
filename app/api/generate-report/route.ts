@@ -528,6 +528,64 @@ async function generateWithOpenAI(profile: Profile, responses: Responses, result
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
 
+  const reportSchema = {
+    type: "object",
+    additionalProperties: false,
+    required: [
+      "executiveSummary",
+      "organizationSnapshot",
+      "strainDiagnosis",
+      "missionImplications",
+      "primaryStrainDrivers",
+      "topRisks",
+      "recommendations",
+      "fitProofEngagement",
+      "recommendedEngagement",
+      "nextSteps",
+      "publicSignals"
+    ],
+    properties: {
+      executiveSummary: { type: "string" },
+      organizationSnapshot: { type: "string" },
+      strainDiagnosis: { type: "string" },
+      missionImplications: { type: "string" },
+      primaryStrainDrivers: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["category", "strain", "evidence", "whyItMatters", "consequence"],
+          properties: {
+            category: { type: "string" },
+            strain: { type: "string" },
+            evidence: { type: "string" },
+            whyItMatters: { type: "string" },
+            consequence: { type: "string" }
+          }
+        }
+      },
+      topRisks: { type: "array", items: { type: "string" } },
+      recommendations: { type: "array", items: { type: "string" } },
+      fitProofEngagement: { type: "string" },
+      recommendedEngagement: {
+        type: "object",
+        additionalProperties: false,
+        required: ["recommendedOffering", "whyThisOfferingFits", "primaryObjectives", "initialWorkplan", "expectedOutcomes", "suggestedTimeline", "whyNow"],
+        properties: {
+          recommendedOffering: { type: "string" },
+          whyThisOfferingFits: { type: "string" },
+          primaryObjectives: { type: "array", items: { type: "string" } },
+          initialWorkplan: { type: "array", items: { type: "string" } },
+          expectedOutcomes: { type: "array", items: { type: "string" } },
+          suggestedTimeline: { type: "string" },
+          whyNow: { type: "string" }
+        }
+      },
+      nextSteps: { type: "array", items: { type: "string" } },
+      publicSignals: { type: "array", items: { type: "string" } }
+    }
+  };
+
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
@@ -537,12 +595,21 @@ async function generateWithOpenAI(profile: Profile, responses: Responses, result
     body: JSON.stringify({
       model: process.env.OPENAI_REPORT_MODEL || "gpt-4.1-mini",
       input: buildPrompt(profile, responses, result, sources),
+      text: {
+        format: {
+          type: "json_schema",
+          name: "fitproof_operational_strain_report",
+          strict: true,
+          schema: reportSchema
+        }
+      },
       temperature: 0.2
     })
   });
 
   if (!response.ok) {
-    throw new Error(`OpenAI report request failed with status ${response.status}`);
+    const errorBody = await response.text();
+    throw new Error(`OpenAI report request failed with status ${response.status}: ${errorBody}`);
   }
 
   const payload = await response.json();
@@ -550,6 +617,10 @@ async function generateWithOpenAI(profile: Profile, responses: Responses, result
     payload.output_text ||
     payload.output?.flatMap((item: { content?: { text?: string }[] }) => item.content || []).map((content: { text?: string }) => content.text || "").join("") ||
     "";
+
+  if (!text.trim()) {
+    throw new Error(`OpenAI report response did not include output_text: ${JSON.stringify(payload).slice(0, 1000)}`);
+  }
 
   const parsed = JSON.parse(extractJson(text)) as Omit<GeneratedExecutiveReport, "generated" | "sources">;
 
