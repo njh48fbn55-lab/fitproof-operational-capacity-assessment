@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import {
   AssessmentResult,
   domains,
@@ -17,6 +17,7 @@ import {
   scoreAssessment,
   stageRecommendations
 } from "@/lib/operational-capacity";
+import type { AuditExtraction, EnhancedAnalysisResult, FinancialMetricName, FinancialYear } from "@/lib/nonprofit-viability/types";
 
 const emptyProfile: Profile = {
   organization: "",
@@ -28,6 +29,15 @@ const emptyLead: Lead = {
 };
 
 type View = "assessment" | "lead" | "report";
+
+type EnhancedProfile = {
+  name: string;
+  ein: string;
+  state: string;
+  website: string;
+  includePublicRecordsSearch: boolean;
+  includeStateRegistrySearch: boolean;
+};
 
 const questionNumbers = questions.reduce<Record<string, number>>((numbers, question, index) => {
   numbers[question.id] = index + 1;
@@ -119,9 +129,29 @@ export default function Home() {
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [reportError, setReportError] = useState("");
   const [showSectionValidation, setShowSectionValidation] = useState(false);
+  const [enhancedProfile, setEnhancedProfile] = useState<EnhancedProfile>({
+    name: "",
+    ein: "",
+    state: "",
+    website: "",
+    includePublicRecordsSearch: true,
+    includeStateRegistrySearch: true
+  });
+  const [enhancedFile, setEnhancedFile] = useState<File | null>(null);
+  const [enhancedResult, setEnhancedResult] = useState<EnhancedAnalysisResult | null>(null);
+  const [enhancedError, setEnhancedError] = useState("");
+  const [isRunningEnhancedAnalysis, setIsRunningEnhancedAnalysis] = useState(false);
   const result = useMemo(() => scoreAssessment(responses), [responses]);
   const completed = questions.filter((question) => hasAnswer(question, responses)).length;
   const progress = Math.round((completed / questions.length) * 100);
+
+  useEffect(() => {
+    setEnhancedProfile((current) => ({
+      ...current,
+      name: current.name || profile.organization,
+      website: current.website || profile.websiteUrl
+    }));
+  }, [profile.organization, profile.websiteUrl]);
 
   function setAnswer(question: Question, value: string) {
     setResponses({ ...responses, [question.id]: value });
@@ -169,6 +199,67 @@ export default function Home() {
       setReportError("The AI report could not be generated, so the deterministic executive report is shown instead.");
     } finally {
       setIsGeneratingReport(false);
+    }
+  }
+
+  async function runEnhancedAnalysis() {
+    const name = enhancedProfile.name.trim() || profile.organization.trim();
+    const website = enhancedProfile.website.trim() || profile.websiteUrl.trim();
+
+    if (!name && !enhancedProfile.ein.trim()) {
+      setEnhancedError("Enter a nonprofit name or EIN before running enhanced analysis.");
+      return;
+    }
+
+    setIsRunningEnhancedAnalysis(true);
+    setEnhancedError("");
+
+    try {
+      const uploadedAuditExtractions: AuditExtraction[] = [];
+
+      if (enhancedFile) {
+        const formData = new FormData();
+        formData.append("file", enhancedFile);
+        formData.append("organizationName", name || "organization");
+
+        const uploadResponse = await fetch("/api/documents/upload", {
+          method: "POST",
+          body: formData
+        });
+
+        if (!uploadResponse.ok) {
+          throw new Error("Uploaded document could not be processed.");
+        }
+
+        const uploadData = await uploadResponse.json();
+        if (uploadData.extraction) uploadedAuditExtractions.push(uploadData.extraction);
+      }
+
+      const response = await fetch("/api/nonprofit/enrich", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          ein: enhancedProfile.ein,
+          state: enhancedProfile.state,
+          website,
+          includePublicRecordsSearch: enhancedProfile.includePublicRecordsSearch,
+          includeStateRegistrySearch: enhancedProfile.includeStateRegistrySearch,
+          uploadedAuditExtractions
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error("Enhanced analysis failed.");
+      }
+
+      const data = (await response.json()) as EnhancedAnalysisResult;
+      setEnhancedResult(data);
+    } catch (error) {
+      console.error(error);
+      setEnhancedError("Enhanced analysis could not be completed. Check the nonprofit details and try again.");
+    } finally {
+      setIsRunningEnhancedAnalysis(false);
     }
   }
 
@@ -287,6 +378,19 @@ export default function Home() {
                 </div>
               )}
             </section>
+
+            {currentStep === 0 && (
+              <EnhancedAnalysisPanel
+                profile={enhancedProfile}
+                onProfileChange={setEnhancedProfile}
+                file={enhancedFile}
+                onFileChange={setEnhancedFile}
+                onRun={runEnhancedAnalysis}
+                isRunning={isRunningEnhancedAnalysis}
+                error={enhancedError}
+                result={enhancedResult}
+              />
+            )}
 
             <div className="grid gap-5 lg:grid-cols-[245px_minmax(0,1fr)]">
               <nav className="rounded border border-line bg-white p-2 shadow-soft lg:sticky lg:top-4 lg:self-start" aria-label="Assessment sections">
@@ -487,6 +591,296 @@ function LeadCapture({
       </div>
     </section>
   );
+}
+
+function EnhancedAnalysisPanel({
+  profile,
+  onProfileChange,
+  file,
+  onFileChange,
+  onRun,
+  isRunning,
+  error,
+  result
+}: {
+  profile: EnhancedProfile;
+  onProfileChange: (profile: EnhancedProfile) => void;
+  file: File | null;
+  onFileChange: (file: File | null) => void;
+  onRun: () => void;
+  isRunning: boolean;
+  error: string;
+  result: EnhancedAnalysisResult | null;
+}) {
+  return (
+    <section className="rounded border border-line bg-white p-4 shadow-soft sm:p-5">
+      <div className="flex flex-col gap-2 border-b border-line pb-4 md:flex-row md:items-end md:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-fitgreen">Enhanced analysis</p>
+          <h2 className="mt-1 text-xl font-bold tracking-tight">nonprofit viability analysis</h2>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-slate">
+            Add nonprofit identifiers and optional audit or annual report files to enrich the assessment with public records, Form 990 data, website context, and 5-year financial trends.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onRun}
+          disabled={isRunning}
+          className="min-h-11 rounded bg-blacktop px-4 text-sm font-bold text-fitgreen transition hover:bg-fitgreen hover:text-blacktop disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {isRunning ? "Running analysis..." : "Run Enhanced Analysis"}
+        </button>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-4">
+        <Field label="Nonprofit name" value={profile.name} onChange={(value) => onProfileChange({ ...profile, name: value })} />
+        <Field label="EIN" value={profile.ein} onChange={(value) => onProfileChange({ ...profile, ein: value })} />
+        <Field label="State" value={profile.state} onChange={(value) => onProfileChange({ ...profile, state: value.toUpperCase().slice(0, 2) })} />
+        <Field label="Website" value={profile.website} onChange={(value) => onProfileChange({ ...profile, website: value })} />
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_220px] md:items-end">
+        <label className="grid gap-1.5">
+          <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate">Upload audit or annual report</span>
+          <input
+            type="file"
+            accept=".pdf,.txt,.html,.htm"
+            onChange={(event) => onFileChange(event.target.files?.[0] || null)}
+            className="min-h-11 rounded border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition file:mr-3 file:rounded file:border-0 file:bg-blacktop file:px-3 file:py-1.5 file:text-sm file:font-bold file:text-fitgreen focus:border-fitgreen focus:ring-4 focus:ring-fitgreen/20"
+          />
+          {file && <span className="text-xs font-semibold text-slate">{file.name}</span>}
+        </label>
+        <label className="flex min-h-11 items-center gap-2 rounded border border-line bg-panel px-3 text-sm font-semibold text-ink">
+          <input
+            type="checkbox"
+            checked={profile.includePublicRecordsSearch}
+            onChange={(event) => onProfileChange({ ...profile, includePublicRecordsSearch: event.target.checked })}
+            className="size-4 accent-fitgreen"
+          />
+          Public records search
+        </label>
+        <label className="flex min-h-11 items-center gap-2 rounded border border-line bg-panel px-3 text-sm font-semibold text-ink">
+          <input
+            type="checkbox"
+            checked={profile.includeStateRegistrySearch}
+            onChange={(event) => onProfileChange({ ...profile, includeStateRegistrySearch: event.target.checked })}
+            className="size-4 accent-fitgreen"
+          />
+          State registry search
+        </label>
+      </div>
+
+      {error && <p className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{error}</p>}
+      {isRunning && <p className="mt-3 rounded border border-fitgreen/40 bg-fitgreen/10 px-3 py-2 text-sm font-semibold text-ink">Collecting sources, calculating trends, and generating the executive viability narrative.</p>}
+      {result && <EnhancedAnalysisResults result={result} />}
+    </section>
+  );
+}
+
+function EnhancedAnalysisResults({ result }: { result: EnhancedAnalysisResult }) {
+  const years = [...result.financialYears].sort((a, b) => a.fiscalYear - b.fiscalYear);
+  const latest = result.financialYears[0];
+  const currentRatio = latest ? metricValue(latest, "currentRatio") : null;
+  const monthsCash = latest ? metricValue(latest, "monthsCashOnHand") : null;
+  const workingCapital = latest ? metricValue(latest, "workingCapital") : null;
+
+  function downloadEnhancedReport() {
+    const organization = result.organization.legalName || "organization";
+    const fileName = `${organization.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "fitproof"}-viability-report.doc`;
+    const financialRows = result.financialYears
+      .map(
+        (year) => `
+          <tr>
+            <td>${escapeHtml(year.fiscalYear)}</td>
+            <td>${escapeHtml(formatMoney(metricValue(year, "totalRevenue")))}</td>
+            <td>${escapeHtml(formatMoney(metricValue(year, "totalExpenses")))}</td>
+            <td>${escapeHtml(formatMoney(metricValue(year, "surplusDeficit")))}</td>
+            <td>${escapeHtml(formatPercent(metricValue(year, "surplusMargin")))}</td>
+            <td>${escapeHtml(formatMetric(metricValue(year, "monthsCashOnHand")))}</td>
+          </tr>
+        `
+      )
+      .join("");
+    const html = `
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>${escapeHtml(organization)} Viability Report</title>
+          <style>
+            body { font-family: Arial, sans-serif; color: #111; line-height: 1.45; }
+            h1 { font-size: 26px; margin-bottom: 4px; }
+            h2 { font-size: 17px; margin-top: 22px; border-bottom: 1px solid #d8ddd3; padding-bottom: 5px; }
+            p, li, td, th { font-size: 12px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+            th, td { border: 1px solid #d8ddd3; padding: 7px; text-align: left; }
+            th { background: #f2f5ef; }
+          </style>
+        </head>
+        <body>
+          <h1>FitProof Nonprofit Viability Report</h1>
+          <p>${escapeHtml(organization)} | Score ${escapeHtml(result.viabilityScore.total)}/100 | ${escapeHtml(result.viabilityScore.classification)}</p>
+          <h2>Executive Narrative</h2>
+          <p>${escapeHtml(result.report.executiveNarrative)}</p>
+          <h2>5-Year Financial Trend</h2>
+          <table>
+            <thead><tr><th>Fiscal year</th><th>Revenue</th><th>Expenses</th><th>Surplus/deficit</th><th>Margin</th><th>Months cash</th></tr></thead>
+            <tbody>${financialRows}</tbody>
+          </table>
+          <h2>Liquidity / Runway</h2>
+          <p>${escapeHtml(result.report.liquidityRunwayAnalysis)}</p>
+          <h2>Risk Flags</h2>
+          <ul>${listItems(result.viabilityScore.riskFlags.length ? result.viabilityScore.riskFlags : ["No major risk flags were calculated from available data."])}</ul>
+          <h2>FitProof Next Steps</h2>
+          <ul>${listItems(result.report.recommendedFitProofNextSteps)}</ul>
+        </body>
+      </html>
+    `;
+
+    const blob = new Blob(["\ufeff", html], { type: "application/msword;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 500);
+  }
+
+  return (
+    <div className="mt-5 grid gap-4 border-t border-line pt-4">
+      <div className="grid gap-3 md:grid-cols-[220px_1fr_180px]">
+        <div className="rounded border border-line bg-panel p-4">
+          <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate">Viability score</p>
+          <p className="mt-2 text-4xl font-bold tabular-nums">{result.viabilityScore.total}<span className="text-base text-slate">/100</span></p>
+          <p className="mt-1 text-sm font-bold text-fitgreen">{result.viabilityScore.classification}</p>
+        </div>
+        <div className="rounded border border-line bg-panel p-4">
+          <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate">Organization match</p>
+          <p className="mt-2 text-xl font-bold">{result.organization.legalName || "Unmatched organization"}</p>
+          <p className="mt-1 text-sm leading-6 text-slate">
+            Confidence: <strong className="text-ink">{result.organization.sourceConfidence}</strong>
+            {result.organization.ein ? ` | EIN ${result.organization.ein}` : ""}
+            {result.organization.state ? ` | ${result.organization.state}` : ""}
+          </p>
+        </div>
+        <button type="button" onClick={downloadEnhancedReport} className="min-h-11 rounded bg-fitgreen px-4 text-sm font-bold text-blacktop transition hover:bg-blacktop hover:text-fitgreen">
+          Download report
+        </button>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-3">
+        <MetricTile label="Current ratio" value={formatMetric(currentRatio)} />
+        <MetricTile label="Months cash on hand" value={formatMetric(monthsCash)} />
+        <MetricTile label="Working capital" value={formatMoney(workingCapital)} />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <TrendChart title="5-year revenue and expense trend" years={years} series={[{ label: "Revenue", metric: "totalRevenue", color: "#67a629" }, { label: "Expenses", metric: "totalExpenses", color: "#111111" }]} />
+        <TrendChart title="Surplus / deficit trend" years={years} series={[{ label: "Surplus/deficit", metric: "surplusDeficit", color: "#d83131" }]} />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded border border-line p-4">
+          <h3 className="text-lg font-bold">Data sources found</h3>
+          <ul className="mt-3 grid gap-2 text-sm leading-6 text-slate">
+            {result.sources.slice(0, 10).map((source) => (
+              <li key={source.id}>
+                <strong className="text-ink">{source.title}</strong> | {source.sourceType} | {source.confidence}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div className="rounded border border-line p-4">
+          <h3 className="text-lg font-bold">Risk flags</h3>
+          <ul className="mt-3 grid gap-2 text-sm leading-6 text-slate">
+            {(result.viabilityScore.riskFlags.length ? result.viabilityScore.riskFlags : ["No major risk flags were calculated from available data."]).map((flag) => (
+              <li key={flag}>{flag}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+
+      <div className="rounded border border-line bg-panel p-4">
+        <h3 className="text-lg font-bold">Executive viability narrative</h3>
+        <p className="mt-2 text-sm leading-6 text-slate">{result.report.executiveNarrative}</p>
+      </div>
+    </div>
+  );
+}
+
+function MetricTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded border border-line bg-panel p-4">
+      <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate">{label}</p>
+      <p className="mt-2 text-2xl font-bold tabular-nums">{value}</p>
+    </div>
+  );
+}
+
+function TrendChart({
+  title,
+  years,
+  series
+}: {
+  title: string;
+  years: FinancialYear[];
+  series: { label: string; metric: FinancialMetricName; color: string }[];
+}) {
+  const values = years.flatMap((year) => series.map((item) => Math.abs(metricValue(year, item.metric) || 0)));
+  const max = Math.max(...values, 1);
+
+  return (
+    <div className="rounded border border-line p-4">
+      <h3 className="text-lg font-bold">{title}</h3>
+      <div className="mt-4 grid gap-3">
+        {years.length ? (
+          years.map((year) => (
+            <div key={year.fiscalYear} className="grid grid-cols-[52px_1fr] gap-3 text-sm">
+              <p className="font-bold text-slate">{year.fiscalYear}</p>
+              <div className="grid gap-1.5">
+                {series.map((item) => {
+                  const value = metricValue(year, item.metric);
+                  const width = `${Math.max(3, Math.min(100, ((Math.abs(value || 0) / max) * 100)))}%`;
+                  return (
+                    <div key={item.metric} className="grid grid-cols-[105px_1fr_100px] items-center gap-2">
+                      <span className="text-xs font-semibold text-slate">{item.label}</span>
+                      <span className="h-3 overflow-hidden rounded bg-panel">
+                        <span className="block h-full rounded" style={{ width, backgroundColor: item.color }} />
+                      </span>
+                      <span className="text-right text-xs font-bold tabular-nums text-ink">{formatMoney(value)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))
+        ) : (
+          <p className="text-sm leading-6 text-slate">No financial years were available from the selected sources.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function metricValue(year: FinancialYear, name: FinancialMetricName) {
+  return year.metrics.find((metric) => metric.name === name)?.value ?? null;
+}
+
+function formatMoney(value: number | null) {
+  if (value === null || Number.isNaN(value)) return "Unavailable";
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value);
+}
+
+function formatPercent(value: number | null) {
+  if (value === null || Number.isNaN(value)) return "Unavailable";
+  return `${Math.round(value * 1000) / 10}%`;
+}
+
+function formatMetric(value: number | null) {
+  if (value === null || Number.isNaN(value)) return "Unavailable";
+  return `${Math.round(value * 10) / 10}`;
 }
 
 function Report({
