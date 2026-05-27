@@ -29,10 +29,10 @@ function synthesizedReport(profile: Profile, responses: Responses, result: Asses
   return {
     generated: true,
     operationalIntelligence,
-    executiveSummary: operationalIntelligence.keyFindings.slice(0, 3).join(" "),
+    executiveSummary: operationalIntelligence.executiveSummaryParagraphs.join("\n\n"),
     organizationSnapshot: `${profile.organization || "The organization"}: ${enhancedAnalysis?.organization.legalName || "public profile matched where available"}${enhancedAnalysis?.organization.ein ? `, EIN ${enhancedAnalysis.organization.ein}` : ""}. ${enhancedAnalysis?.organization.nteeCode ? `NTEE ${enhancedAnalysis.organization.nteeCode}.` : ""}`,
     strainDiagnosis: `${operationalIntelligence.operationalStrainSpiral.currentStage} (${operationalIntelligence.operationalStrainSpiral.stageConfidence}% confidence). Primary drivers: ${operationalIntelligence.operationalStrainSpiral.primaryStrainDrivers.slice(0, 3).join(" ")}`,
-    missionImplications: `Operational Health ${operationalIntelligence.operationalHealthScore.totalScore}/100; Growth Readiness ${operationalIntelligence.growthReadinessScore.score}/100. The priority is to remove the constraints that most directly limit scale, reporting confidence, and execution capacity.`,
+    missionImplications: `Organizational Health ${operationalIntelligence.organizationalHealthScore.totalScore}/100; Growth Readiness ${operationalIntelligence.growthReadinessScore.score}/100. The priority is to remove the constraints that most directly limit scale, reporting confidence, and execution capacity.`,
     financialAnalysis,
     staffingCapacityAnalysis,
     strategicSignals,

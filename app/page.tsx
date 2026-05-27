@@ -675,7 +675,8 @@ function Report({
             intelligence
               ? `
                 <h2>Executive Snapshot</h2>
-                <p><span class="score">Operational Health: ${escapeHtml(intelligence.executiveSnapshot.operationalHealthScore)}/100</span><span class="score">Growth Readiness: ${escapeHtml(intelligence.executiveSnapshot.growthReadinessScore)}/100</span><span class="score">Strain Stage: ${escapeHtml(intelligence.executiveSnapshot.operationalStrainSpiralStage)}</span></p>
+                <p><span class="score">Operational Strain: ${escapeHtml(intelligence.executiveSnapshot.operationalStrainScore)}/100</span><span class="score">Growth Readiness: ${escapeHtml(intelligence.executiveSnapshot.growthReadinessScore)}/100</span><span class="score">Organizational Health: ${escapeHtml(intelligence.executiveSnapshot.organizationalHealthScore)}/100</span></p>
+                <h2>Executive Summary</h2>${intelligence.executiveSummaryParagraphs.map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`).join("")}
                 <h2>Key Findings</h2><ul>${listItems(intelligence.keyFindings)}</ul>
                 <h2>Benchmark Highlights</h2>
                 <table><thead><tr><th>Metric</th><th>Organization</th><th>Peer Median</th><th>Percentile</th></tr></thead><tbody>${intelligence.benchmarkHighlights.map((item) => `<tr><td>${escapeHtml(item.metric)}</td><td>${escapeHtml(item.organizationDisplay)}</td><td>${escapeHtml(item.peerMedianDisplay)}</td><td>${escapeHtml(item.percentile === null ? "Unavailable" : `${item.percentile}th`)}</td></tr>`).join("")}</tbody></table>
@@ -1032,28 +1033,40 @@ function OperationalIntelligenceView({
   sources: { title: string; url: string }[];
 }) {
   const snapshot = intelligence.executiveSnapshot;
-  const categoryScores = Object.entries(intelligence.operationalHealthScore.categoryScores);
+  const categoryScores = Object.entries(intelligence.organizationalHealthScore.categoryScores);
 
   return (
     <div className="grid gap-5">
       <section className="grid gap-3 md:grid-cols-3">
-        <ScoreCard label="Operational Health" value={snapshot.operationalHealthScore} suffix="/100" detail={snapshot.financialStabilityIndicator} />
-        <ScoreCard label="Growth Readiness" value={snapshot.growthReadinessScore} suffix="/100" detail={intelligence.growthReadinessScore.classification} />
-        <div className="rounded border border-line bg-panel p-4">
-          <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate">Operational Strain Spiral</p>
-          <p className="mt-2 text-2xl font-bold">{snapshot.operationalStrainSpiralStage}</p>
-          <p className="mt-1 text-xs font-bold uppercase tracking-[0.12em] text-slate">{intelligence.operationalStrainSpiral.stageConfidence}% confidence</p>
-        </div>
+        <ExecutiveGaugeCard label="Operational Strain" value={snapshot.operationalStrainScore} mode="strain" detail={snapshot.operationalStrainSpiralStage} />
+        <ExecutiveGaugeCard label="Growth Readiness" value={snapshot.growthReadinessScore} mode="health" detail={intelligence.growthReadinessScore.classification} />
+        <ExecutiveGaugeCard label="Organizational Health" value={snapshot.organizationalHealthScore} mode="health" detail={`${intelligence.operationalStrainSpiral.stageConfidence}% stage confidence`} />
       </section>
 
       <section className="rounded border border-line bg-white p-4">
-        <h3 className="text-lg font-bold">Executive Snapshot</h3>
-        <div className="mt-3 grid gap-3 text-sm md:grid-cols-2">
+        <h3 className="text-lg font-bold">Executive Summary</h3>
+        <div className="mt-3 grid gap-3">
+          {intelligence.executiveSummaryParagraphs.map((paragraph) => (
+            <p key={paragraph} className="text-sm leading-6 text-slate">{paragraph}</p>
+          ))}
+        </div>
+        <div className="mt-4 grid gap-3 border-t border-line pt-4 text-sm md:grid-cols-2">
           <p><strong>Financial stability:</strong> {labelForBand(snapshot.financialStabilityIndicator)}</p>
           <p><strong>Workforce capacity:</strong> {labelForBand(snapshot.workforceCapacityIndicator)}</p>
           <p><strong>Benchmark percentile:</strong> {snapshot.benchmarkPercentile === null ? "Unavailable" : `${snapshot.benchmarkPercentile}th percentile`}</p>
           <p><strong>Growth classification:</strong> {intelligence.growthReadinessScore.classification}</p>
+          <p className="md:col-span-2"><strong>Spiral stage:</strong> {intelligence.operationalStrainSpiral.stageDescription}</p>
         </div>
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+        <RevenueExpenseTrendChart points={intelligence.financialTrend} />
+        <LiquidityBenchmarkChart benchmarks={intelligence.benchmarkHighlights} />
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+        <PeerBenchmarkRadarChart benchmarks={intelligence.benchmarkHighlights} />
+        <WorkforceCapacityKpis groups={intelligence.executiveKpis} />
       </section>
 
       <section className="rounded border border-line bg-mist p-4">
@@ -1067,7 +1080,7 @@ function OperationalIntelligenceView({
 
       <section className="grid gap-4 md:grid-cols-[1fr_1.15fr]">
         <div className="rounded border border-line p-4">
-          <h3 className="text-lg font-bold">Operational Health Score</h3>
+          <h3 className="text-lg font-bold">Organizational Health Score</h3>
           <div className="mt-3 grid gap-3">
             {categoryScores.map(([category, score]) => (
               <div key={category} className="grid grid-cols-[150px_1fr_44px] items-center gap-3 text-sm">
@@ -1116,6 +1129,25 @@ function OperationalIntelligenceView({
         <ListPanel title="Recommended Priorities" items={intelligence.recommendedPriorities} />
       </section>
 
+      <section className="grid gap-4 md:grid-cols-2">
+        {intelligence.executiveKpis.map((group) => (
+          <details key={group.title} className="rounded border border-line bg-white p-4">
+            <summary className="cursor-pointer text-lg font-bold">{group.title}</summary>
+            <div className="mt-3 grid gap-2">
+              {group.items.map((item) => (
+                <div key={item.label} className="grid gap-1 rounded border border-line bg-panel p-3 sm:grid-cols-[1fr_auto]">
+                  <div>
+                    <p className="text-sm font-bold">{item.label}</p>
+                    <p className="text-xs leading-5 text-slate">{item.source}</p>
+                  </div>
+                  <p className={`text-sm font-bold ${indicatorTextClass(item.indicator)}`}>{item.value}</p>
+                </div>
+              ))}
+            </div>
+          </details>
+        ))}
+      </section>
+
       <details className="rounded border border-line bg-panel p-4">
         <summary className="cursor-pointer text-lg font-bold">Supporting Metrics</summary>
         <div className="mt-3 overflow-x-auto">
@@ -1154,16 +1186,6 @@ function OperationalIntelligenceView({
   );
 }
 
-function ScoreCard({ label, value, suffix, detail }: { label: string; value: number; suffix: string; detail: string }) {
-  return (
-    <div className="rounded border border-line bg-panel p-4">
-      <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate">{label}</p>
-      <p className="mt-2 text-3xl font-bold tabular-nums text-charcoal">{value}<span className="text-base text-slate">{suffix}</span></p>
-      <p className="mt-1 text-sm font-bold text-fitgreen">{detail}</p>
-    </div>
-  );
-}
-
 function ListPanel({ title, items }: { title: string; items: string[] }) {
   return (
     <div className="rounded border border-line p-4">
@@ -1181,6 +1203,182 @@ function labelForBand(value: string) {
   if (value === "constrained") return "Constrained";
   if (value === "critical") return "Critical";
   return "Unavailable";
+}
+
+function ExecutiveGaugeCard({ label, value, mode, detail }: { label: string; value: number; mode: "strain" | "health"; detail: string }) {
+  const clamped = Math.max(0, Math.min(100, value));
+  const display = mode === "strain" ? clamped : 100 - clamped;
+  const angle = (display / 100) * 180 - 90;
+  const gradientId = `gauge-${label.replace(/\s+/g, "-").toLowerCase()}`;
+
+  return (
+    <div className="rounded border border-line bg-panel p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate">{label}</p>
+          <p className="mt-1 text-3xl font-bold tabular-nums text-charcoal">{value}<span className="text-base text-slate">/100</span></p>
+        </div>
+        <p className="max-w-40 text-right text-xs font-bold leading-5 text-fitgreen">{detail}</p>
+      </div>
+      <div className="mx-auto mt-3 w-full max-w-[260px]">
+        <svg viewBox="0 0 240 132" role="img" aria-label={`${label} ${value} out of 100`} className="h-auto w-full">
+          <defs>
+            <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="0%">
+              {mode === "strain" ? (
+                <>
+                  <stop offset="0%" stopColor="#67a629" />
+                  <stop offset="52%" stopColor="#f1c232" />
+                  <stop offset="100%" stopColor="#c94b4b" />
+                </>
+              ) : (
+                <>
+                  <stop offset="0%" stopColor="#c94b4b" />
+                  <stop offset="52%" stopColor="#f1c232" />
+                  <stop offset="100%" stopColor="#67a629" />
+                </>
+              )}
+            </linearGradient>
+          </defs>
+          <path d="M28 112 A92 92 0 0 1 212 112" fill="none" stroke={`url(#${gradientId})`} strokeWidth="18" strokeLinecap="round" />
+          <line x1="120" y1="112" x2={120 + Math.cos((angle * Math.PI) / 180) * 72} y2={112 + Math.sin((angle * Math.PI) / 180) * 72} stroke="#111" strokeWidth="5" strokeLinecap="round" />
+          <circle cx="120" cy="112" r="7" fill="#111" />
+          <text x="28" y="128" fontSize="11" fontWeight="700" fill="#596057">0</text>
+          <text x="202" y="128" fontSize="11" fontWeight="700" fill="#596057">100</text>
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+function RevenueExpenseTrendChart({ points }: { points: NonNullable<GeneratedExecutiveReport["operationalIntelligence"]>["financialTrend"] }) {
+  const values = points.flatMap((point) => [point.revenue, point.expenses]).filter((value): value is number => value !== null);
+  const max = Math.max(...values, 1);
+  const chartPoints = points.length ? points : [];
+  const coords = (key: "revenue" | "expenses") =>
+    chartPoints
+      .map((point, index) => {
+        const x = chartPoints.length === 1 ? 40 : 32 + (index * 236) / (chartPoints.length - 1);
+        const y = 150 - (((point[key] || 0) / max) * 110);
+        return `${x},${y}`;
+      })
+      .join(" ");
+
+  return (
+    <div className="rounded border border-line p-4">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-lg font-bold">5-Year Revenue vs Expense Trend</h3>
+        <div className="flex gap-3 text-xs font-bold text-slate">
+          <span><span className="mr-1 inline-block size-2 rounded-full bg-fitgreen" />Revenue</span>
+          <span><span className="mr-1 inline-block size-2 rounded-full bg-red-500" />Expense</span>
+        </div>
+      </div>
+      {chartPoints.length ? (
+        <svg viewBox="0 0 300 180" className="mt-3 h-auto w-full" role="img" aria-label="Revenue and expense trend chart">
+          {[40, 80, 120, 160].map((y) => <line key={y} x1="28" y1={y} x2="280" y2={y} stroke="#d8ddd3" strokeWidth="1" />)}
+          <polyline points={coords("revenue")} fill="none" stroke="#67a629" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+          <polyline points={coords("expenses")} fill="none" stroke="#c94b4b" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+          {chartPoints.map((point, index) => {
+            const x = chartPoints.length === 1 ? 40 : 32 + (index * 236) / (chartPoints.length - 1);
+            return <text key={point.fiscalYear} x={x - 10} y="172" fontSize="10" fontWeight="700" fill="#596057">{point.fiscalYear}</text>;
+          })}
+        </svg>
+      ) : (
+        <p className="mt-3 text-sm text-slate">Revenue and expense trend data was unavailable.</p>
+      )}
+    </div>
+  );
+}
+
+function LiquidityBenchmarkChart({ benchmarks }: { benchmarks: NonNullable<GeneratedExecutiveReport["operationalIntelligence"]>["benchmarkHighlights"] }) {
+  const liquidity = benchmarks.find((item) => /cash|liquidity|current ratio/i.test(item.metric));
+  const percentile = liquidity?.percentile ?? null;
+
+  return (
+    <div className="rounded border border-line p-4">
+      <h3 className="text-lg font-bold">Liquidity Benchmark</h3>
+      <p className="mt-2 text-sm leading-6 text-slate">{liquidity ? `${liquidity.metric}: ${liquidity.organizationDisplay} vs peer median ${liquidity.peerMedianDisplay}.` : "Liquidity benchmark data was unavailable."}</p>
+      <div className="mt-4">
+        <div className="flex justify-between text-xs font-bold uppercase tracking-[0.1em] text-slate">
+          <span>Bottom</span><span>Median</span><span>Top</span>
+        </div>
+        <div className="relative mt-2 h-4 rounded-full bg-gradient-to-r from-red-400 via-yellow-300 to-fitgreen">
+          <span className="absolute top-1/2 h-7 w-1 -translate-y-1/2 rounded bg-blacktop" style={{ left: `${Math.max(0, Math.min(100, percentile ?? 50))}%` }} />
+        </div>
+        <p className="mt-3 text-sm font-bold">{percentile === null ? "Percentile unavailable" : `${percentile}th percentile`}</p>
+      </div>
+    </div>
+  );
+}
+
+function PeerBenchmarkRadarChart({ benchmarks }: { benchmarks: NonNullable<GeneratedExecutiveReport["operationalIntelligence"]>["benchmarkHighlights"] }) {
+  const items = benchmarks.slice(0, 5);
+  const center = 105;
+  const radius = 72;
+  const axes = items.map((item, index) => {
+    const angle = (Math.PI * 2 * index) / Math.max(items.length, 1) - Math.PI / 2;
+    return {
+      item,
+      endX: center + Math.cos(angle) * radius,
+      endY: center + Math.sin(angle) * radius,
+      valueX: center + Math.cos(angle) * radius * ((item.percentile || 0) / 100),
+      valueY: center + Math.sin(angle) * radius * ((item.percentile || 0) / 100)
+    };
+  });
+  const polygon = axes.map((axis) => `${axis.valueX},${axis.valueY}`).join(" ");
+
+  return (
+    <div className="rounded border border-line p-4">
+      <h3 className="text-lg font-bold">Peer Benchmark Radar</h3>
+      {items.length ? (
+        <div className="mt-3 grid gap-3 sm:grid-cols-[220px_1fr] sm:items-center">
+          <svg viewBox="0 0 210 210" className="h-auto w-full max-w-[230px]" role="img" aria-label="Peer benchmark radar chart">
+            {[0.33, 0.66, 1].map((scale) => <circle key={scale} cx={center} cy={center} r={radius * scale} fill="none" stroke="#d8ddd3" />)}
+            {axes.map((axis) => <line key={axis.item.metric} x1={center} y1={center} x2={axis.endX} y2={axis.endY} stroke="#d8ddd3" />)}
+            <polygon points={polygon} fill="#67a62955" stroke="#67a629" strokeWidth="3" />
+          </svg>
+          <ul className="grid gap-2 text-sm text-slate">
+            {items.map((item) => (
+              <li key={item.metric}><strong className="text-ink">{item.metric}:</strong> {item.percentile === null ? "Unavailable" : `${item.percentile}th percentile`} ({item.quartile})</li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <p className="mt-3 text-sm text-slate">Peer benchmark radar was unavailable because benchmark metrics were not found.</p>
+      )}
+    </div>
+  );
+}
+
+function WorkforceCapacityKpis({ groups }: { groups: NonNullable<GeneratedExecutiveReport["operationalIntelligence"]>["executiveKpis"] }) {
+  const operational = groups.find((group) => group.title === "Operational KPIs");
+  const items = (operational?.items || []).filter((item) => /open role|requisition|staffing/i.test(item.label));
+
+  return (
+    <div className="rounded border border-line p-4">
+      <h3 className="text-lg font-bold">Workforce Capacity KPIs</h3>
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        {items.length ? (
+          items.map((item) => (
+            <div key={item.label} className="rounded border border-line bg-panel p-3">
+              <p className="text-xs font-bold uppercase tracking-[0.1em] text-slate">{item.label}</p>
+              <p className={`mt-2 text-xl font-bold ${indicatorTextClass(item.indicator)}`}>{item.value}</p>
+              <p className="mt-1 text-xs leading-5 text-slate">{item.source}</p>
+            </div>
+          ))
+        ) : (
+          <p className="text-sm text-slate">Workforce KPI data was unavailable.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function indicatorTextClass(indicator: string) {
+  if (indicator === "strong") return "text-fitgreen";
+  if (indicator === "watch") return "text-yellow-700";
+  if (indicator === "constrained") return "text-orange-700";
+  if (indicator === "critical") return "text-red-700";
+  return "text-slate";
 }
 
 function OperationalGauge({ strain }: { strain: number }) {

@@ -1,7 +1,7 @@
 import { AssessmentResult } from "@/lib/operational-capacity";
 import { EnhancedAnalysisResult } from "@/lib/nonprofit-viability/types";
 import { WorkforceCapacityAnalysis } from "@/lib/workforce-capacity/types";
-import { BenchmarkComparison, OperationalHealthScore, ScoreCategory } from "./types";
+import { BenchmarkComparison, OrganizationalHealthScore, ScoreCategory } from "./types";
 import { averageMetric, clampScore, domainHealth, latestFinancialYear, metric, scoreFromThresholds } from "./scoring-utils";
 
 const weights: Record<ScoreCategory, number> = {
@@ -14,7 +14,7 @@ const weights: Record<ScoreCategory, number> = {
   "AI/Automation Readiness": 0.05
 };
 
-export function operationalHealthScoreService({
+export function organizationalHealthScoreService({
   result,
   enhancedAnalysis,
   workforceCapacityAnalysis,
@@ -24,7 +24,7 @@ export function operationalHealthScoreService({
   enhancedAnalysis: EnhancedAnalysisResult | null;
   workforceCapacityAnalysis: WorkforceCapacityAnalysis | null;
   benchmarks: BenchmarkComparison[];
-}): OperationalHealthScore {
+}): OrganizationalHealthScore {
   const latest = latestFinancialYear(enhancedAnalysis);
   const currentRatio = metric(latest, "currentRatio");
   const monthsCash = metric(latest, "monthsCashOnHand");
@@ -34,7 +34,7 @@ export function operationalHealthScoreService({
   const registryRisks = enhancedAnalysis?.registryResults.filter((item) => /delinquent|suspend|not|revoked/i.test(item.status || "")).length || 0;
   const publicRisks = enhancedAnalysis?.publicRecords.filter((item) => ["litigation", "enforcement"].includes(item.signalType)).length || 0;
 
-  const categoryScores: OperationalHealthScore["categoryScores"] = {
+  const categoryScores: OrganizationalHealthScore["categoryScores"] = {
     "Financial Stability": clampScore(
       (scoreFromThresholds(currentRatio, [{ min: 2, score: 95 }, { min: 1.5, score: 80 }, { min: 1, score: 62 }, { min: 0, score: 35 }]) +
         scoreFromThresholds(monthsCash, [{ min: 6, score: 95 }, { min: 3, score: 78 }, { min: 1, score: 55 }, { min: 0, score: 30 }]) +
