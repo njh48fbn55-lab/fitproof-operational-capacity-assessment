@@ -4,6 +4,8 @@ import { AuditExtraction, ExtractionMethod, FinancialMetric, SourceDocument, Via
 import { extractLinks, fetchTextPage, fiscalYearFromText, localDataDir, makeId, metricLabel, moneyFromText, normalizeUrl, nowIso, roughTextFromBytes } from "./utils";
 
 const auditLinkPattern = /(audit|audited|financial|finance|annual|impact|990|form-990|report|transparency|accountability)/i;
+const financialHubPattern = /(about|about-us|who-we-are|our-story|history|leadership|governance|board|financial|finance|annual|impact|report|transparency|accountability)/i;
+const commonReportSubdomains = ["annualreport", "annual-report", "impact", "reports", "financials", "finance"];
 
 export async function saveUploadedAuditDocument(file: File, organizationName: string) {
   const dir = path.join(localDataDir(), "uploads");
@@ -34,9 +36,24 @@ export async function findAuditDocumentsOnWebsite(website?: string | null): Prom
   const home = await fetchTextPage(url, 4000);
   if (!home?.html) return [];
 
+  const hubLinks = [
+    ...extractLinks(home.html, url, financialHubPattern, 10),
+    ...extractFinancialLinksByAnchor(home.html, url, 10, financialHubPattern),
+    ...extractSameRootLinksByAnchor(home.html, url, 10, financialHubPattern),
+    ...commonSubdomainCandidates(url)
+  ];
+  const hubPages = (
+    await Promise.all([...new Set(hubLinks)].slice(0, 7).map((link) => fetchTextPage(link, 3500)))
+  ).filter((page): page is NonNullable<typeof home> => Boolean(page?.html));
+
   const links = [
     ...extractLinks(home.html, url, auditLinkPattern, 8),
-    ...extractFinancialLinksByAnchor(home.html, url, 10)
+    ...extractFinancialLinksByAnchor(home.html, url, 10),
+    ...hubPages.flatMap((page) => [
+      ...extractLinks(page.html, page.url, auditLinkPattern, 8),
+      ...extractFinancialLinksByAnchor(page.html, page.url, 10),
+      ...extractSameRootLinksByAnchor(page.html, page.url, 10)
+    ])
   ];
 
   const secondLevelPages = (
@@ -58,6 +75,54 @@ export async function findAuditDocumentsOnWebsite(website?: string | null): Prom
     retrievedAt: nowIso(),
     notes: "Potential audit, annual report, impact report, Form 990, or financial disclosure discovered on the nonprofit website."
   }));
+}
+
+function extractSameRootLinksByAnchor(html: string, baseUrl: string, limit: number, pattern = auditLinkPattern) {
+  const root = rootDomain(baseUrl);
+  const seen = new Set<string>();
+
+  return [...html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)]
+    .map((match) => {
+      try {
+        const href = new URL(match[1], baseUrl);
+        href.hash = "";
+        href.search = "";
+        const label = match[2].replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+        return { url: href, label };
+      } catch {
+        return null;
+      }
+    })
+    .filter((item): item is { url: URL; label: string } => Boolean(item))
+    .filter((item) => rootDomain(item.url.toString()) === root)
+    .filter((item) => pattern.test(`${item.url.hostname} ${item.url.pathname} ${item.label}`))
+    .map((item) => item.url.toString())
+    .filter((link) => {
+      if (seen.has(link)) return false;
+      seen.add(link);
+      return true;
+    })
+    .slice(0, limit);
+}
+
+function commonSubdomainCandidates(baseUrl: string) {
+  try {
+    const url = new URL(baseUrl);
+    const root = rootDomain(baseUrl);
+    return commonReportSubdomains.map((subdomain) => `${url.protocol}//${subdomain}.${root}/`);
+  } catch {
+    return [];
+  }
+}
+
+function rootDomain(value: string) {
+  try {
+    const hostname = new URL(value).hostname.replace(/^www\./, "");
+    const parts = hostname.split(".");
+    return parts.length >= 2 ? parts.slice(-2).join(".") : hostname;
+  } catch {
+    return "";
+  }
 }
 
 export async function extractAuditFieldsFromSourceUrl(sourceDocument: SourceDocument): Promise<AuditExtraction | null> {
@@ -128,7 +193,7 @@ function metric(name: FinancialMetric["name"], value: number | null, fiscalYear:
   };
 }
 
-function extractFinancialLinksByAnchor(html: string, baseUrl: string, limit: number) {
+function extractFinancialLinksByAnchor(html: string, baseUrl: string, limit: number, pattern = auditLinkPattern) {
   const base = new URL(baseUrl);
   const seen = new Set<string>();
   const links = [...html.matchAll(/<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)]
@@ -145,7 +210,7 @@ function extractFinancialLinksByAnchor(html: string, baseUrl: string, limit: num
     })
     .filter((item): item is { url: URL; label: string } => Boolean(item))
     .filter((item) => item.url.origin === base.origin)
-    .filter((item) => auditLinkPattern.test(`${item.url.pathname} ${item.label}`))
+    .filter((item) => pattern.test(`${item.url.pathname} ${item.label}`))
     .map((item) => item.url.toString())
     .filter((link) => {
       if (seen.has(link)) return false;

@@ -1,5 +1,5 @@
 import { ConfidenceLevel, FinancialYear, NonprofitSearchInput, Organization, SourceDocument } from "./types";
-import { formatEin, makeId, metricLabel, normalizeEin, nowIso } from "./utils";
+import { formatEin, makeId, metricLabel, normalizeEin, nowIso, textFromHtml } from "./utils";
 
 type ProPublicaOrganization = {
   ein?: number | string;
@@ -65,12 +65,14 @@ export async function searchProPublica(input: NonprofitSearchInput) {
 
 export async function propublicaService(input: NonprofitSearchInput): Promise<{ sources: SourceDocument[]; financialYears: FinancialYear[] }> {
   const payload = await searchProPublica(input).catch(() => null);
-  if (!payload) return { sources: [], financialYears: [] };
-
-  const organization = organizationFromProPublica(payload, input);
+  const organization = payload ? organizationFromProPublica(payload, input) : null;
+  const apiYears = payload ? financialYearsFromProPublica(payload) : [];
+  const ein = normalizeEin(organization?.ein || input.ein || "");
+  const pageYears = ein ? await financialYearsFromProPublicaPage(ein).catch(() => []) : [];
+  const financialYears = mergeFinancialYears(pageYears, apiYears);
   return {
     sources: organization?.sources || [],
-    financialYears: financialYearsFromProPublica(payload)
+    financialYears
   };
 }
 
@@ -244,4 +246,62 @@ function addGrowthMetrics(years: FinancialYear[]) {
       ]
     };
   });
+}
+
+async function financialYearsFromProPublicaPage(ein: string): Promise<FinancialYear[]> {
+  const response = await fetch(`https://projects.propublica.org/nonprofits/organizations/${ein}`, {
+    headers: { "User-Agent": "FitProof Nonprofit Viability Analyzer/1.0" }
+  });
+  if (!response.ok) return [];
+
+  const text = textFromHtml(await response.text());
+  const sections = text.split(/Fiscal Year Ending\s+[A-Za-z.]+\s+/i).slice(1, 6);
+
+  const years: FinancialYear[] = sections
+      .map((section): FinancialYear | null => {
+        const year = Number(section.match(/\b(20\d{2})\b/)?.[1]);
+        if (!year) return null;
+
+        const totalRevenue = moneyAfterLabel(section, "Revenue");
+        const totalExpenses = moneyAfterLabel(section, "Expenses");
+        const surplus = moneyAfterLabel(section, "Net Income") ?? (totalRevenue !== null && totalExpenses !== null ? totalRevenue - totalExpenses : null);
+        const netAssets = moneyAfterLabel(section, "Net Assets");
+        const totalAssets = moneyAfterLabel(section, "Total Assets");
+        const totalLiabilities = moneyAfterLabel(section, "Total Liabilities");
+        const programServices = moneyAfterLabel(section, "Program Services");
+        const professionalFundraisingFees = moneyAfterLabel(section, "Professional Fundraising Fees");
+
+        return {
+          fiscalYear: year,
+          sourcePriority: 5,
+          sourceNote: "ProPublica Nonprofit Explorer public page was used because it included a newer filing summary than the API response.",
+          metrics: [
+            metric("totalRevenue", totalRevenue, year, "ProPublica Nonprofit Explorer public page", "medium"),
+            metric("totalExpenses", totalExpenses, year, "ProPublica Nonprofit Explorer public page", "medium"),
+            metric("surplusDeficit", surplus, year, "ProPublica Nonprofit Explorer public page", "medium"),
+            metric("surplusMargin", ratio(surplus, totalRevenue), year, "Derived from ProPublica public page revenue and expenses", "medium"),
+            metric("totalAssets", totalAssets, year, "ProPublica Nonprofit Explorer public page", "medium"),
+            metric("totalLiabilities", totalLiabilities, year, "ProPublica Nonprofit Explorer public page", "medium"),
+            metric("netAssetsWithoutDonorRestrictions", netAssets, year, "ProPublica public page net assets; donor restriction split unavailable", "low"),
+            metric("programExpenseRatio", ratio(programServices, totalExpenses), year, "Derived from ProPublica public page values", "low"),
+            metric("fundraisingExpenseRatio", ratio(professionalFundraisingFees, totalExpenses), year, "Derived from ProPublica public page values", "low")
+          ]
+        } satisfies FinancialYear;
+      })
+      .filter((year): year is FinancialYear => Boolean(year));
+
+  return addGrowthMetrics(years);
+}
+
+function moneyAfterLabel(section: string, label: string) {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = section.match(new RegExp(`${escaped}\\s+\\$\\s*([\\d,]+)`, "i"));
+  return match?.[1] ? Number(match[1].replace(/,/g, "")) : null;
+}
+
+function mergeFinancialYears(primaryYears: FinancialYear[], fallbackYears: FinancialYear[]) {
+  const byYear = new Map<number, FinancialYear>();
+  fallbackYears.forEach((year) => byYear.set(year.fiscalYear, year));
+  primaryYears.forEach((year) => byYear.set(year.fiscalYear, year));
+  return [...byYear.values()].sort((a, b) => b.fiscalYear - a.fiscalYear).slice(0, 5);
 }
