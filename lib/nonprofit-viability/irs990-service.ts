@@ -17,6 +17,8 @@ const IRS_FETCH_TIMEOUT_MS = 6500;
 const MAX_ZIP_BYTES = 12 * 1024 * 1024;
 
 export async function irs990Service(input: NonprofitSearchInput): Promise<FinancialYear[]> {
+  if (process.env.IRS_TEOS_INDEX_LOOKUP_ENABLED !== "true") return [];
+
   const ein = normalizeEin(input.ein);
   if (!ein) return [];
 
