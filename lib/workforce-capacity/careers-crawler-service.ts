@@ -14,7 +14,7 @@ export async function careersCrawlerService({
 }): Promise<CareersCrawlResult> {
   const rootUrl = normalizeUrl(websiteUrl || "");
   if (!rootUrl) {
-    return { roles: [], sources: [], searchedUrls: [], notes: ["No website URL was provided, so careers pages could not be searched."] };
+    return { roles: [], sources: [], searchedUrls: [], notes: ["No website URL was provided, so careers pages could not be searched."], debug: emptyDebug([]) };
   }
 
   const notes: string[] = [];
@@ -42,14 +42,22 @@ export async function careersCrawlerService({
     roles.push(...extractLinkedRoles(page.html, page.url, platform, organizationName || undefined));
   }
 
-  const dedupedRoles = dedupeRoles(roles);
+  const activeRoles = roles.filter((item) => item.active);
+  const dedupedRoles = dedupeRoles(activeRoles);
   if (!dedupedRoles.length) notes.push("No public open roles were found on reviewed careers pages or common hiring platforms.");
 
   return {
     roles: dedupedRoles,
     sources: dedupeSources(sources),
     searchedUrls: [...new Set(searchedUrls)],
-    notes
+    notes,
+    debug: {
+      careersPageFound: searchedUrls.find((url) => /career|job|employment|join/i.test(url)) || null,
+      atsPlatformDetected: searchedUrls.map(platformForUrl).find((platform) => platform !== "unknown") || null,
+      postingsExtracted: activeRoles.length,
+      postingsAfterDeduplication: dedupedRoles.length,
+      sourceUrlsCrawled: [...new Set(searchedUrls)]
+    }
   };
 }
 
@@ -84,6 +92,7 @@ async function buildCareerSeeds(rootUrl: string) {
 async function fetchProviderRoles(url: string, platform: CareersPlatform) {
   if (platform === "greenhouse") return fetchGreenhouseRoles(url);
   if (platform === "lever") return fetchLeverRoles(url);
+  if (["adp", "workday", "bamboohr", "jazzhr", "paylocity", "icims"].includes(platform)) return fetchGenericAtsRoles(url, platform);
   return [];
 }
 
@@ -102,6 +111,7 @@ async function fetchGreenhouseRoles(url: string): Promise<CareersRole[]> {
       title,
       department: departments[0] || inferDepartment(title),
       location: offices[0] || null,
+      requisitionId: stringValue(job.id),
       updatedDate: stringValue(job.updated_at),
       requisitionUrl: absoluteUrl,
       platform: "greenhouse",
@@ -123,6 +133,7 @@ async function fetchLeverRoles(url: string): Promise<CareersRole[]> {
       title,
       department: stringValue(categories.department) || inferDepartment(title),
       location: stringValue(categories.location),
+      requisitionId: stringValue(posting.id),
       employmentType: stringValue(categories.commitment),
       updatedDate: numberDate(posting.createdAt),
       requisitionUrl: stringValue(posting.hostedUrl) || url,
@@ -130,6 +141,16 @@ async function fetchLeverRoles(url: string): Promise<CareersRole[]> {
       confidence: "high"
     });
   });
+}
+
+async function fetchGenericAtsRoles(url: string, platform: CareersPlatform): Promise<CareersRole[]> {
+  const page = await fetchTextPage(url, 6000);
+  if (!page?.html) return [];
+  return [
+    ...extractJsonLdRoles(page.html, page.url, platform),
+    ...extractStructuredAtsRoles(page.html, page.url, platform),
+    ...extractLinkedRoles(page.html, page.url, platform)
+  ];
 }
 
 function extractJsonLdRoles(html: string, baseUrl: string, platform: CareersPlatform) {
@@ -145,6 +166,7 @@ function extractJsonLdRoles(html: string, baseUrl: string, platform: CareersPlat
         title,
         department: stringValue(item.industry) || stringValue(item.occupationalCategory) || inferDepartment(title),
         location: locationFromJsonLd(item.jobLocation),
+        requisitionId: stringValue(item.identifier),
         postedDate: stringValue(item.datePosted),
         updatedDate: stringValue(item.validThrough),
         employmentType: stringValue(item.employmentType),
@@ -154,6 +176,49 @@ function extractJsonLdRoles(html: string, baseUrl: string, platform: CareersPlat
       }));
     }
   }
+  return roles;
+}
+
+function extractStructuredAtsRoles(html: string, baseUrl: string, platform: CareersPlatform) {
+  const roles: CareersRole[] = [];
+  const text = textFromHtml(html);
+
+  for (const record of jsonObjectMatches(html).slice(0, 80)) {
+    const title = stringValue(record.title) || stringValue(record.jobTitle) || stringValue(record.name);
+    if (!title || !looksLikeRoleTitle(title) || isInactiveText(title)) continue;
+    const location = stringValue(record.location) || stringValue(record.jobLocation) || stringValue(record.city);
+    const requisitionId = stringValue(record.requisitionId) || stringValue(record.reqId) || stringValue(record.id);
+    const url = absoluteUrl(stringValue(record.url) || stringValue(record.jobUrl) || stringValue(record.applyUrl), baseUrl) || baseUrl;
+
+    roles.push(role({
+      title,
+      department: stringValue(record.department) || inferDepartment(title),
+      location,
+      requisitionId,
+      postedDate: stringValue(record.postedDate) || stringValue(record.datePosted),
+      updatedDate: stringValue(record.updatedDate),
+      employmentType: stringValue(record.employmentType) || stringValue(record.type),
+      requisitionUrl: url,
+      platform,
+      confidence: "medium",
+      active: !isInactiveText(`${title} ${text.slice(Math.max(0, text.indexOf(title) - 80), text.indexOf(title) + 160)}`)
+    }));
+  }
+
+  for (const candidate of [...text.matchAll(/\b([A-Z][A-Za-z0-9/&.,'() -]{5,90})\s+(?:\||-|\u2013|\u2014)?\s*((?:Remote|Hybrid|[A-Z][a-z]+,\s*[A-Z]{2}|[A-Z][A-Za-z .'-]+))?\s*(?:Full[-\s]?time|Part[-\s]?time|Regular|Temporary)?/g)].slice(0, 80)) {
+    const title = cleanTitle(candidate[1] || "");
+    if (!title || !looksLikeRoleTitle(title) || isInactiveText(title)) continue;
+    roles.push(role({
+      title,
+      department: inferDepartment(title),
+      location: candidate[2] || inferLocationFromText(candidate[0] || ""),
+      requisitionUrl: baseUrl,
+      platform,
+      confidence: "low",
+      active: !isInactiveText(candidate[0] || "")
+    }));
+  }
+
   return roles;
 }
 
@@ -169,12 +234,14 @@ function extractLinkedRoles(html: string, baseUrl: string, platform: CareersPlat
       title: text || titleFromJobUrl(url),
       department: inferDepartment(text || url),
       location: inferLocationFromText(`${text} ${attrs}`),
+      requisitionId: requisitionIdFromUrl(url),
       requisitionUrl: url,
       platform: platformForUrl(url) === "unknown" ? platform : platformForUrl(url),
-      confidence: text ? "medium" : "low"
+      confidence: text ? "medium" : "low",
+      active: !isInactiveText(`${text} ${url}`)
     }));
   }
-  return roles.filter((item) => item.title.length >= 3);
+  return roles.filter((item) => item.title.length >= 3 && looksLikeRoleTitle(item.title));
 }
 
 function extractCareerLinks(html: string, baseUrl: string, limit: number) {
@@ -220,20 +287,25 @@ async function fetchJson<T>(url: string): Promise<T | null> {
   }
 }
 
-function role(input: Pick<CareersRole, "title" | "requisitionUrl" | "platform" | "confidence"> & Partial<Pick<CareersRole, "department" | "location" | "postedDate" | "updatedDate" | "employmentType">>): CareersRole {
+function role(input: Pick<CareersRole, "title" | "requisitionUrl" | "platform" | "confidence"> & Partial<Pick<CareersRole, "department" | "location" | "requisitionId" | "postedDate" | "updatedDate" | "employmentType" | "active">>): CareersRole {
+  const seenAt = nowIso();
   return {
     id: makeId("role", `${input.title}-${input.requisitionUrl}`),
     title: cleanTitle(input.title),
     department: input.department || inferDepartment(input.title),
     location: input.location || null,
+    requisitionId: input.requisitionId || requisitionIdFromUrl(input.requisitionUrl),
     postedDate: input.postedDate || null,
     updatedDate: input.updatedDate || null,
+    firstSeenAt: seenAt,
+    lastSeenAt: seenAt,
     employmentType: input.employmentType || null,
     leadershipLevel: inferLeadershipLevel(input.title),
     requisitionUrl: input.requisitionUrl,
     platform: input.platform,
     sourceName: platformLabel(input.platform),
-    confidence: input.confidence
+    confidence: input.confidence,
+    active: input.active ?? true
   };
 }
 
@@ -254,7 +326,7 @@ function sourceFor(url: string, title: string, confidence: SourceDocument["confi
 function dedupeRoles(roles: CareersRole[]) {
   const seen = new Set<string>();
   return roles.filter((roleItem) => {
-    const key = `${roleItem.title.toLowerCase()}|${roleItem.requisitionUrl.toLowerCase()}`;
+    const key = `${roleItem.title.toLowerCase()}|${(roleItem.location || "").toLowerCase()}|${(roleItem.requisitionId || roleItem.requisitionUrl).toLowerCase()}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -301,10 +373,48 @@ function isLikelyJobLink(url: string, title: string, organizationName?: string) 
   const lowerUrl = url.toLowerCase();
   const lowerTitle = title.toLowerCase();
   if (platformForUrl(url) !== "unknown") return true;
-  if (/\/(job|jobs|career|careers|position|posting|requisition|opening)s?\b/.test(lowerUrl)) return true;
+  if (/\/(job|jobs|career|careers|position|posting|requisition|opening|mdf\/recruitment)s?\b/.test(lowerUrl)) return true;
   if (/\b(apply|open role|job|position|career|hiring|employment)\b/.test(lowerTitle)) return true;
   if (organizationName && lowerTitle.includes(organizationName.toLowerCase()) && /career|job/.test(lowerUrl)) return true;
   return false;
+}
+
+function emptyDebug(sourceUrlsCrawled: string[]) {
+  return {
+    careersPageFound: null,
+    atsPlatformDetected: null,
+    postingsExtracted: 0,
+    postingsAfterDeduplication: 0,
+    sourceUrlsCrawled
+  };
+}
+
+function jsonObjectMatches(html: string) {
+  const objects: Record<string, unknown>[] = [];
+  for (const match of html.matchAll(/\{[^{}]*(?:"title"|"jobTitle"|"requisitionId"|"reqId"|"postedDate")[^{}]*\}/gi)) {
+    const parsed = safeJson(match[0]);
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) objects.push(parsed as Record<string, unknown>);
+  }
+  return objects;
+}
+
+function requisitionIdFromUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    return parsed.searchParams.get("jobId") || parsed.searchParams.get("job_id") || parsed.searchParams.get("reqId") || parsed.searchParams.get("requisitionId") || parsed.pathname.split("/").filter(Boolean).pop() || null;
+  } catch {
+    return null;
+  }
+}
+
+function looksLikeRoleTitle(title: string) {
+  if (title.length < 4 || title.length > 120) return false;
+  if (/^(apply|view|search|careers|jobs|home|benefits|about|privacy|login|sign in|submit)$/i.test(title)) return false;
+  return /[A-Za-z]/.test(title);
+}
+
+function isInactiveText(text: string) {
+  return /\b(closed|filled|expired|no longer accepting|not accepting applications|inactive)\b/i.test(text);
 }
 
 function inferLeadershipLevel(title: string): LeadershipLevel {

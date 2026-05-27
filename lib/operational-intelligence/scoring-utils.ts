@@ -22,6 +22,20 @@ export function metric(year: FinancialYear | null, name: FinancialMetricName) {
   return year?.metrics.find((item) => item.name === name)?.value ?? null;
 }
 
+export function metricRecord(year: FinancialYear | null, name: FinancialMetricName) {
+  return year?.metrics.find((item) => item.name === name) || null;
+}
+
+export function reliableMetric(year: FinancialYear | null, name: FinancialMetricName) {
+  const record = metricRecord(year, name);
+  if (!record || record.value === null) return null;
+  return record.confidence === "high" || record.confidence === "medium" ? record.value : null;
+}
+
+export function hasReliableMetric(year: FinancialYear | null, name: FinancialMetricName) {
+  return reliableMetric(year, name) !== null;
+}
+
 export function averageMetric(years: FinancialYear[] | undefined, name: FinancialMetricName) {
   const values = (years || []).map((year) => metric(year, name)).filter((value): value is number => value !== null);
   return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;

@@ -85,6 +85,14 @@ export type SupportingMetric = {
   source: string;
 };
 
+export type WorkforceExtractionDebug = {
+  careersPageFound: string | null;
+  atsPlatformDetected: string | null;
+  postingsExtracted: number;
+  postingsAfterDeduplication: number;
+  sourceUrlsCrawled: string[];
+};
+
 export type OperationalIntelligenceReport = {
   executiveSnapshot: ExecutiveSnapshot;
   executiveSummaryParagraphs: string[];
@@ -99,4 +107,6 @@ export type OperationalIntelligenceReport = {
   growthConstraints: string[];
   recommendedPriorities: string[];
   supportingMetrics: SupportingMetric[];
+  workforceExtractionDebug: WorkforceExtractionDebug | null;
+  dataQualityNotes: string[];
 };

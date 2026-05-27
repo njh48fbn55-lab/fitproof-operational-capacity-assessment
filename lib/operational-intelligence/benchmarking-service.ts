@@ -2,7 +2,7 @@ import { AssessmentResult } from "@/lib/operational-capacity";
 import { EnhancedAnalysisResult } from "@/lib/nonprofit-viability/types";
 import { WorkforceCapacityAnalysis } from "@/lib/workforce-capacity/types";
 import { BenchmarkComparison } from "./types";
-import { formatNumber, formatPercent, latestFinancialYear, metric } from "./scoring-utils";
+import { formatNumber, formatPercent, latestFinancialYear, metric, reliableMetric } from "./scoring-utils";
 
 type BenchmarkMetric = {
   key: string;
@@ -36,18 +36,20 @@ export function benchmarkingService({
   const band = revenueBand(revenue);
   const group = benchmarkGroup(enhancedAnalysis, revenue, workforceCapacityAnalysis?.workforceSize.estimatedEmployeeCount ?? null);
   const values: Record<string, number | null> = {
-    monthsCashOnHand: metric(latest, "monthsCashOnHand"),
+    monthsCashOnHand: reliableMetric(latest, "monthsCashOnHand"),
     surplusMargin: metric(latest, "surplusMargin"),
     fundraisingEfficiency: metric(latest, "fundraisingExpenseRatio"),
     programExpenseRatio: metric(latest, "programExpenseRatio"),
     adminExpenseRatio: metric(latest, "managementGeneralExpenseRatio"),
     revenueGrowth: metric(latest, "revenueGrowth"),
-    liquidityRatio: metric(latest, "currentRatio"),
+    liquidityRatio: reliableMetric(latest, "currentRatio"),
     openPositionRatio: workforceCapacityAnalysis?.metrics.openRoleRatio ?? null,
     unrestrictedReserveLevels: unrestricted !== null && totalExpenses ? unrestricted / totalExpenses : null
   };
 
-  return referenceBenchmarks[band].map((benchmark) => compareMetric(benchmark, values[benchmark.key], group));
+  return referenceBenchmarks[band]
+    .map((benchmark) => compareMetric(benchmark, values[benchmark.key], group))
+    .filter((comparison) => comparison.organizationValue !== null);
 }
 
 function baseBenchmarks(values: {

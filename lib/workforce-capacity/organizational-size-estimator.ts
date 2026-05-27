@@ -19,7 +19,11 @@ export function organizationalSizeEstimator(enhancedAnalysis?: EnhancedAnalysisR
     }
   };
 
-  enhancedAnalysis.sources.forEach((source) => addCandidates(`${source.title}. ${source.notes || ""}. ${source.textExcerpt || ""}`, source.title, source.confidence));
+  enhancedAnalysis.sources.forEach((source) => {
+    const text = `${source.title}. ${source.notes || ""}. ${source.textExcerpt || ""}`;
+    const confidence = /990|form 990|employee count|w-2/i.test(text) ? "high" : source.confidence;
+    addCandidates(text, source.title, confidence);
+  });
   addCandidates(enhancedAnalysis.websiteAnalysis.programDescriptions.join(" "), "Website program descriptions", "medium");
   addCandidates(enhancedAnalysis.websiteAnalysis.operationalComplexitySignals.join(" "), "Website operational complexity signals", "medium");
 
@@ -30,7 +34,7 @@ export function organizationalSizeEstimator(enhancedAnalysis?: EnhancedAnalysisR
       confidence: "low",
       sources: [],
       method: "Reviewed website, public report excerpts, and available filing context.",
-      notes: ["No reliable public employee-count reference was found. Open-role ratio is therefore unavailable."]
+      notes: ["Employee count unavailable from reliable public sources. Open position ratio is therefore not calculated."]
     };
   }
 

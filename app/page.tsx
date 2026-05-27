@@ -69,6 +69,22 @@ function listItems(items: string[]) {
   return items.length ? items.map((item) => `<li>${escapeHtml(item)}</li>`).join("") : "<li>No items available.</li>";
 }
 
+function wordGaugeHtml(label: string, value: number) {
+  const clamped = Math.max(0, Math.min(100, value));
+  return `
+    <div class="word-gauge">
+      <div class="word-gauge-head">
+        <strong>${escapeHtml(label)}</strong>
+        <span>${escapeHtml(clamped)}/100</span>
+      </div>
+      <div class="word-gauge-track">
+        <span class="word-gauge-needle" style="left: ${clamped}%"></span>
+      </div>
+      <div class="word-gauge-scale"><span>0</span><span>50</span><span>100</span></div>
+    </div>
+  `;
+}
+
 function Field({
   label,
   value,
@@ -653,6 +669,12 @@ function Report({
             .eyebrow { color: #67a629; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
             .meta { color: #4b5563; font-size: 11px; }
             .score { display: inline-block; margin-right: 18px; font-weight: bold; }
+            .gauge-grid { display: table; width: 100%; border-spacing: 8px; margin-top: 10px; }
+            .gauge-cell { display: table-cell; width: 33.33%; border: 1px solid #d8ddd3; padding: 10px; vertical-align: top; }
+            .word-gauge-head { display: flex; justify-content: space-between; font-size: 12px; }
+            .word-gauge-track { position: relative; height: 12px; margin-top: 8px; border-radius: 999px; background: linear-gradient(90deg, #d83131 0%, #f1c232 50%, #67a629 100%); }
+            .word-gauge-needle { position: absolute; top: -4px; display: block; width: 2px; height: 20px; background: #111111; }
+            .word-gauge-scale { display: flex; justify-content: space-between; margin-top: 4px; color: #4b5563; font-size: 10px; }
             table { width: 100%; border-collapse: collapse; margin-top: 10px; }
             th, td { border: 1px solid #d8ddd3; padding: 7px; text-align: left; vertical-align: top; }
             th { background: #f2f5ef; }
@@ -665,28 +687,38 @@ function Report({
           <p class="meta">Email verified: ${escapeHtml(lead.email || "Not provided")}</p>
           <p class="meta">Website reviewed: ${escapeHtml(profile.websiteUrl || "Not provided")}</p>
 
-          <h2>Executive Summary</h2>
-          <p>${escapeHtml(summary)}</p>
-
-          <h2>Score Profile</h2>
-          <p><span class="score">Operational strain: ${escapeHtml(result.riskScore)}/100</span><span class="score">Stage ${escapeHtml(result.stage.number)}: ${escapeHtml(result.stage.name)}</span></p>
-
           ${
             intelligence
               ? `
-                <h2>Executive Snapshot</h2>
-                <p><span class="score">Operational Strain: ${escapeHtml(intelligence.executiveSnapshot.operationalStrainScore)}/100</span><span class="score">Growth Readiness: ${escapeHtml(intelligence.executiveSnapshot.growthReadinessScore)}/100</span><span class="score">Organizational Health: ${escapeHtml(intelligence.executiveSnapshot.organizationalHealthScore)}/100</span></p>
+                <h2>Executive Gauges</h2>
+                <div class="gauge-grid">
+                  <div class="gauge-cell">${wordGaugeHtml("Operational Strain", intelligence.executiveSnapshot.operationalStrainScore)}</div>
+                  <div class="gauge-cell">${wordGaugeHtml("Growth Readiness", intelligence.executiveSnapshot.growthReadinessScore)}</div>
+                  <div class="gauge-cell">${wordGaugeHtml("Organizational Health", intelligence.executiveSnapshot.organizationalHealthScore)}</div>
+                </div>
                 <h2>Executive Summary</h2>${intelligence.executiveSummaryParagraphs.map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`).join("")}
+                <h2>Score Profile</h2>
+                <p><strong>Operational Strain:</strong> ${escapeHtml(scoreImpactText("strain", intelligence.executiveSnapshot.operationalStrainScore))}</p>
+                <p><strong>Growth Readiness:</strong> ${escapeHtml(scoreImpactText("growth", intelligence.executiveSnapshot.growthReadinessScore))}</p>
+                <p><strong>Organizational Health:</strong> ${escapeHtml(scoreImpactText("health", intelligence.executiveSnapshot.organizationalHealthScore))}</p>
+                <h2>Current Spiral Stage</h2>
+                <p><strong>${escapeHtml(intelligence.operationalStrainSpiral.currentStage)}:</strong> ${escapeHtml(intelligence.operationalStrainSpiral.stageDescription)}</p>
+                <p><strong>Why classified here:</strong> ${escapeHtml(intelligence.operationalStrainSpiral.primaryStrainDrivers.slice(0, 3).join(" "))}</p>
+                <p><strong>If unaddressed:</strong> ${escapeHtml(intelligence.operationalStrainSpiral.likelyFutureRisks.slice(0, 2).join(" "))}</p>
                 <h2>Key Findings</h2><ul>${listItems(intelligence.keyFindings)}</ul>
                 <h2>Benchmark Highlights</h2>
                 <table><thead><tr><th>Metric</th><th>Organization</th><th>Peer Median</th><th>Percentile</th></tr></thead><tbody>${intelligence.benchmarkHighlights.map((item) => `<tr><td>${escapeHtml(item.metric)}</td><td>${escapeHtml(item.organizationDisplay)}</td><td>${escapeHtml(item.peerMedianDisplay)}</td><td>${escapeHtml(item.percentile === null ? "Unavailable" : `${item.percentile}th`)}</td></tr>`).join("")}</tbody></table>
+                <h2>Executive KPIs</h2>
+                ${intelligence.executiveKpis.map((group) => `<h3>${escapeHtml(group.title)}</h3><table><thead><tr><th>KPI</th><th>Value</th><th>Source</th></tr></thead><tbody>${group.items.map((item) => `<tr><td>${escapeHtml(item.label)}</td><td>${escapeHtml(item.value)}</td><td>${escapeHtml(item.source)}</td></tr>`).join("")}</tbody></table>`).join("")}
                 <h2>Primary Operational Risks</h2><ul>${listItems(intelligence.primaryOperationalRisks)}</ul>
                 <h2>Growth Constraints</h2><ul>${listItems(intelligence.growthConstraints)}</ul>
                 <h2>Recommended Priorities</h2><ul>${listItems(intelligence.recommendedPriorities)}</ul>
-                <h2>Supporting Metrics</h2>
+                <h2>Supporting Source Appendix</h2>
                 <table><thead><tr><th>Metric</th><th>Value</th><th>Source</th></tr></thead><tbody>${intelligence.supportingMetrics.map((item) => `<tr><td>${escapeHtml(item.label)}</td><td>${escapeHtml(item.value)}</td><td>${escapeHtml(item.source)}</td></tr>`).join("")}</tbody></table>
+                ${intelligence.workforceExtractionDebug ? `<h2>Workforce Extraction Debug</h2><p>Careers page found: ${escapeHtml(intelligence.workforceExtractionDebug.careersPageFound || "None")}</p><p>ATS platform detected: ${escapeHtml(intelligence.workforceExtractionDebug.atsPlatformDetected || "None")}</p><p>Postings extracted: ${escapeHtml(intelligence.workforceExtractionDebug.postingsExtracted)}; after deduplication: ${escapeHtml(intelligence.workforceExtractionDebug.postingsAfterDeduplication)}</p><ul>${listItems(intelligence.workforceExtractionDebug.sourceUrlsCrawled)}</ul>` : ""}
+                ${intelligence.dataQualityNotes.length ? `<h2>Data Quality Notes</h2><ul>${listItems(intelligence.dataQualityNotes)}</ul>` : ""}
               `
-              : ""
+              : `<h2>Executive Summary</h2><p>${escapeHtml(summary)}</p><h2>Score Profile</h2><p><span class="score">Operational strain: ${escapeHtml(result.riskScore)}/100</span><span class="score">Stage ${escapeHtml(result.stage.number)}: ${escapeHtml(result.stage.name)}</span></p>`
           }
 
           ${!intelligence && generatedReport?.organizationSnapshot ? `<h2>Organization Snapshot</h2><p>${escapeHtml(generatedReport.organizationSnapshot)}</p>` : ""}
@@ -1059,6 +1091,39 @@ function OperationalIntelligenceView({
         </div>
       </section>
 
+      <section className="rounded border border-line bg-white p-4">
+        <h3 className="text-lg font-bold">Score Profile</h3>
+        <div className="mt-3 grid gap-3 md:grid-cols-3">
+          <ImpactCard title="Operational Strain" value={snapshot.operationalStrainScore} text={scoreImpactText("strain", snapshot.operationalStrainScore)} />
+          <ImpactCard title="Growth Readiness" value={snapshot.growthReadinessScore} text={scoreImpactText("growth", snapshot.growthReadinessScore)} />
+          <ImpactCard title="Organizational Health" value={snapshot.organizationalHealthScore} text={scoreImpactText("health", snapshot.organizationalHealthScore)} />
+        </div>
+      </section>
+
+      <section className="rounded border border-fitgreen/40 bg-fitgreen/10 p-4">
+        <p className="text-xs font-bold uppercase tracking-[0.16em] text-fitgreen">Current Spiral Stage</p>
+        <h3 className="mt-2 text-2xl font-bold">{intelligence.operationalStrainSpiral.currentStage}</h3>
+        <p className="mt-2 text-sm leading-6 text-slate">{intelligence.operationalStrainSpiral.stageDescription}</p>
+        <div className="mt-4 grid gap-4 md:grid-cols-3">
+          <div>
+            <p className="text-sm font-bold">Why classified here</p>
+            <p className="mt-1 text-sm leading-6 text-slate">{intelligence.operationalStrainSpiral.primaryStrainDrivers.slice(0, 2).join(" ")}</p>
+          </div>
+          <div>
+            <p className="text-sm font-bold">Top evidence signals</p>
+            <ul className="mt-1 grid gap-1 text-sm leading-6 text-slate">
+              {intelligence.operationalStrainSpiral.primaryStrainDrivers.slice(0, 3).map((driver) => <li key={driver}>{driver}</li>)}
+            </ul>
+          </div>
+          <div>
+            <p className="text-sm font-bold">If unaddressed</p>
+            <ul className="mt-1 grid gap-1 text-sm leading-6 text-slate">
+              {intelligence.operationalStrainSpiral.likelyFutureRisks.slice(0, 3).map((risk) => <li key={risk}>{risk}</li>)}
+            </ul>
+          </div>
+        </div>
+      </section>
+
       <section className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
         <RevenueExpenseTrendChart points={intelligence.financialTrend} />
         <LiquidityBenchmarkChart benchmarks={intelligence.benchmarkHighlights} />
@@ -1125,7 +1190,7 @@ function OperationalIntelligenceView({
 
       <section className="grid gap-4 md:grid-cols-3">
         <ListPanel title="Primary Operational Risks" items={intelligence.primaryOperationalRisks} />
-        <ListPanel title="Growth Constraints" items={intelligence.growthConstraints} />
+        <ListPanel title="Address Growth Constraints" items={intelligence.growthConstraints} />
         <ListPanel title="Recommended Priorities" items={intelligence.recommendedPriorities} />
       </section>
 
@@ -1149,7 +1214,7 @@ function OperationalIntelligenceView({
       </section>
 
       <details className="rounded border border-line bg-panel p-4">
-        <summary className="cursor-pointer text-lg font-bold">Supporting Metrics</summary>
+        <summary className="cursor-pointer text-lg font-bold">Supporting Source Appendix</summary>
         <div className="mt-3 overflow-x-auto">
           <table className="w-full min-w-[620px] border-collapse text-left text-sm">
             <thead>
@@ -1171,6 +1236,31 @@ function OperationalIntelligenceView({
           </table>
         </div>
       </details>
+
+      {intelligence.workforceExtractionDebug && (
+        <details className="rounded border border-line bg-white p-4">
+          <summary className="cursor-pointer text-lg font-bold">Workforce Extraction Debug</summary>
+          <div className="mt-3 grid gap-2 text-sm leading-6 text-slate">
+            <p><strong>Careers page found:</strong> {intelligence.workforceExtractionDebug.careersPageFound || "None"}</p>
+            <p><strong>ATS platform detected:</strong> {intelligence.workforceExtractionDebug.atsPlatformDetected || "None"}</p>
+            <p><strong>Postings extracted:</strong> {intelligence.workforceExtractionDebug.postingsExtracted}</p>
+            <p><strong>Postings after deduplication:</strong> {intelligence.workforceExtractionDebug.postingsAfterDeduplication}</p>
+            <p><strong>Source URLs crawled:</strong></p>
+            <ul className="grid gap-1">
+              {intelligence.workforceExtractionDebug.sourceUrlsCrawled.map((url) => <li key={url}>{url}</li>)}
+            </ul>
+          </div>
+        </details>
+      )}
+
+      {intelligence.dataQualityNotes.length > 0 && (
+        <details className="rounded border border-line bg-white p-4">
+          <summary className="cursor-pointer text-lg font-bold">Data Quality Notes</summary>
+          <ul className="mt-3 grid gap-2 text-sm leading-6 text-slate">
+            {intelligence.dataQualityNotes.map((note) => <li key={note}>{note}</li>)}
+          </ul>
+        </details>
+      )}
 
       <details className="rounded border border-line bg-white p-4">
         <summary className="cursor-pointer text-lg font-bold">Sources Reviewed</summary>
@@ -1197,6 +1287,34 @@ function ListPanel({ title, items }: { title: string; items: string[] }) {
   );
 }
 
+function ImpactCard({ title, value, text }: { title: string; value: number; text: string }) {
+  return (
+    <div className="rounded border border-line bg-panel p-3">
+      <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate">{title}</p>
+      <p className="mt-1 text-2xl font-bold tabular-nums">{value}<span className="text-sm text-slate">/100</span></p>
+      <p className="mt-2 text-sm leading-6 text-slate">{text}</p>
+    </div>
+  );
+}
+
+function scoreImpactText(kind: "strain" | "growth" | "health", score: number) {
+  if (kind === "strain") {
+    if (score >= 70) return "This level of strain can materially consume leadership bandwidth, slow execution, and create service delivery or scalability risk.";
+    if (score >= 45) return "This strain level suggests leadership and teams are absorbing meaningful execution pressure that may limit scalability if demand increases.";
+    return "This strain level suggests operating pressure is manageable, though leaders should still protect execution capacity as complexity grows.";
+  }
+
+  if (kind === "growth") {
+    if (score >= 75) return "The organization appears positioned to grow with targeted operational controls and limited added drag.";
+    if (score >= 55) return "The organization has a viable growth base, but scaling may increase operational drag unless process, staffing, or systems constraints are addressed.";
+    return "Growth should be paced carefully until the operating model can absorb additional complexity without creating avoidable drag.";
+  }
+
+  if (score >= 75) return "Overall resilience and operating stability appear strong enough to sustain performance with focused improvement in watch areas.";
+  if (score >= 55) return "The organization shows a mixed health profile: stable enough to improve, but constrained enough that execution reliability may vary by function.";
+  return "Organizational resilience appears constrained, with stability and sustained performance dependent on near-term operating improvements.";
+}
+
 function labelForBand(value: string) {
   if (value === "strong") return "Strong";
   if (value === "watch") return "Watch area";
@@ -1207,8 +1325,7 @@ function labelForBand(value: string) {
 
 function ExecutiveGaugeCard({ label, value, mode, detail }: { label: string; value: number; mode: "strain" | "health"; detail: string }) {
   const clamped = Math.max(0, Math.min(100, value));
-  const display = mode === "strain" ? clamped : 100 - clamped;
-  const angle = (display / 100) * 180 - 90;
+  const angle = scoreToGaugeRotation(clamped);
   const gradientId = `gauge-${label.replace(/\s+/g, "-").toLowerCase()}`;
 
   return (
@@ -1248,6 +1365,11 @@ function ExecutiveGaugeCard({ label, value, mode, detail }: { label: string; val
       </div>
     </div>
   );
+}
+
+function scoreToGaugeRotation(score: number) {
+  const clamped = Math.max(0, Math.min(100, score));
+  return -90 + (clamped / 100) * 180;
 }
 
 function RevenueExpenseTrendChart({ points }: { points: NonNullable<GeneratedExecutiveReport["operationalIntelligence"]>["financialTrend"] }) {
@@ -1292,6 +1414,7 @@ function RevenueExpenseTrendChart({ points }: { points: NonNullable<GeneratedExe
 function LiquidityBenchmarkChart({ benchmarks }: { benchmarks: NonNullable<GeneratedExecutiveReport["operationalIntelligence"]>["benchmarkHighlights"] }) {
   const liquidity = benchmarks.find((item) => /cash|liquidity|current ratio/i.test(item.metric));
   const percentile = liquidity?.percentile ?? null;
+  if (!liquidity) return null;
 
   return (
     <div className="rounded border border-line p-4">

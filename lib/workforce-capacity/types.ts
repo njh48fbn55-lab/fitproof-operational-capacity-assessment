@@ -24,14 +24,18 @@ export type CareersRole = {
   title: string;
   department: string | null;
   location: string | null;
+  requisitionId: string | null;
   postedDate: string | null;
   updatedDate: string | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
   employmentType: string | null;
   leadershipLevel: LeadershipLevel;
   requisitionUrl: string;
   platform: CareersPlatform;
   sourceName: string;
   confidence: ConfidenceLevel;
+  active: boolean;
 };
 
 export type CareersCrawlResult = {
@@ -39,6 +43,13 @@ export type CareersCrawlResult = {
   sources: SourceDocument[];
   searchedUrls: string[];
   notes: string[];
+  debug: {
+    careersPageFound: string | null;
+    atsPlatformDetected: CareersPlatform | null;
+    postingsExtracted: number;
+    postingsAfterDeduplication: number;
+    sourceUrlsCrawled: string[];
+  };
 };
 
 export type WorkforceSizeEstimate = {

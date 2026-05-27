@@ -5,8 +5,8 @@ import { benchmarkingService } from "./benchmarking-service";
 import { growthReadinessScoreService } from "./growth-readiness-score";
 import { organizationalHealthScoreService } from "./operational-health-score";
 import { operationalStrainSpiralClassifier } from "./strain-spiral-classifier";
-import { BenchmarkComparison, OperationalIntelligenceReport, SupportingMetric } from "./types";
-import { band, formatMoney, formatNumber, formatPercent, latestFinancialYear, metric } from "./scoring-utils";
+import { BenchmarkComparison, ExecutiveKpi, ExecutiveKpiGroup, OperationalIntelligenceReport, SupportingMetric } from "./types";
+import { band, formatMoney, formatNumber, formatPercent, hasReliableMetric, latestFinancialYear, metric, metricRecord, reliableMetric } from "./scoring-utils";
 
 export function reportSynthesisService({
   profile,
@@ -62,7 +62,9 @@ export function reportSynthesisService({
     primaryOperationalRisks: risks,
     growthConstraints: constraints,
     recommendedPriorities: priorities,
-    supportingMetrics: supportingMetrics(enhancedAnalysis, workforceCapacityAnalysis, responses)
+    supportingMetrics: supportingMetrics(enhancedAnalysis, workforceCapacityAnalysis, responses),
+    workforceExtractionDebug: workforceCapacityAnalysis?.careers.debug || null,
+    dataQualityNotes: dataQualityNotes(enhancedAnalysis, workforceCapacityAnalysis)
   };
 }
 
@@ -121,29 +123,28 @@ function primaryRisks({
 function recommendedPriorities(result: AssessmentResult, growthReadinessScore: ReturnType<typeof growthReadinessScoreService>, operationalStrainSpiral: ReturnType<typeof operationalStrainSpiralClassifier>) {
   const stage = stageRecommendations[result.stage.number];
   const priorities = [
-    ...growthReadinessScore.growthConstraints.map((constraint) => `Address growth constraint: ${constraint}`),
-    ...operationalStrainSpiral.primaryStrainDrivers.slice(0, 2).map((driver) => `Stabilize ${driver.split(":")[0].toLowerCase()} before scaling.`),
+    ...growthReadinessScore.growthConstraints.map(rewriteConstraintAsAction),
+    ...operationalStrainSpiral.primaryStrainDrivers.slice(0, 2).map(rewriteDriverAsAction),
     ...stage.actions
   ];
-  return [...new Set(priorities)];
+  return [...new Set(priorities.map((priority) => priority.replace(/\s+/g, " ").trim()).filter(Boolean))];
 }
 
 function supportingMetrics(enhancedAnalysis: EnhancedAnalysisResult | null, workforceCapacityAnalysis: WorkforceCapacityAnalysis | null, responses: Responses): SupportingMetric[] {
   const latest = latestFinancialYear(enhancedAnalysis);
-  const metrics: SupportingMetric[] = [
-    { label: "Latest fiscal year", value: latest?.fiscalYear ? String(latest.fiscalYear) : "Unavailable", source: latest?.sourceNote || "Public financial source unavailable" },
-    { label: "Total revenue", value: formatMoney(metric(latest, "totalRevenue")), source: sourceForMetric(latest, "totalRevenue") },
-    { label: "Total expenses", value: formatMoney(metric(latest, "totalExpenses")), source: sourceForMetric(latest, "totalExpenses") },
-    { label: "Surplus / deficit", value: formatMoney(metric(latest, "surplusDeficit")), source: sourceForMetric(latest, "surplusDeficit") },
-    { label: "Months cash on hand", value: metric(latest, "monthsCashOnHand") === null ? "Unavailable" : `${formatNumber(metric(latest, "monthsCashOnHand"), 1)} months`, source: sourceForMetric(latest, "monthsCashOnHand") },
-    { label: "Current ratio", value: formatNumber(metric(latest, "currentRatio"), 2), source: sourceForMetric(latest, "currentRatio") },
-    { label: "Open positions", value: workforceCapacityAnalysis ? String(workforceCapacityAnalysis.metrics.totalOpenPositions) : "Unavailable", source: "Public careers pages and hiring platforms" },
-    { label: "Open position ratio", value: formatPercent(workforceCapacityAnalysis?.metrics.openRoleRatio ?? null), source: "Public open roles divided by estimated employee count" },
-    { label: "Leadership openings", value: workforceCapacityAnalysis ? String(workforceCapacityAnalysis.metrics.leadershipOpenings) : "Unavailable", source: "Public careers pages and hiring platforms" },
-    { label: "Stated operating constraint", value: String(responses["biggest-constraint"] || "Unavailable"), source: "Assessment response" }
-  ];
-
-  return metrics;
+  return [
+    latest?.fiscalYear ? { label: "Latest fiscal year", value: String(latest.fiscalYear), source: latest.sourceNote } : null,
+    metric(latest, "totalRevenue") !== null ? { label: "Total revenue", value: formatMoney(metric(latest, "totalRevenue")), source: sourceForMetric(latest, "totalRevenue") } : null,
+    metric(latest, "totalExpenses") !== null ? { label: "Total expenses", value: formatMoney(metric(latest, "totalExpenses")), source: sourceForMetric(latest, "totalExpenses") } : null,
+    metric(latest, "surplusDeficit") !== null ? { label: "Surplus / deficit", value: formatMoney(metric(latest, "surplusDeficit")), source: sourceForMetric(latest, "surplusDeficit") } : null,
+    hasReliableMetric(latest, "monthsCashOnHand") ? { label: "Months cash on hand", value: `${formatNumber(reliableMetric(latest, "monthsCashOnHand"), 1)} months`, source: sourceForMetric(latest, "monthsCashOnHand") } : null,
+    hasReliableMetric(latest, "currentRatio") ? { label: "Current ratio", value: formatNumber(reliableMetric(latest, "currentRatio"), 2), source: sourceForMetric(latest, "currentRatio") } : null,
+    workforceCapacityAnalysis ? { label: "Open positions", value: String(workforceCapacityAnalysis.metrics.totalOpenPositions), source: "Public careers pages and hiring platforms" } : null,
+    workforceCapacityAnalysis?.workforceSize.estimatedEmployeeCount && workforceCapacityAnalysis.workforceSize.confidence !== "low" ? { label: "Estimated headcount", value: String(workforceCapacityAnalysis.workforceSize.estimatedEmployeeCount), source: workforceCapacityAnalysis.workforceSize.sources.join("; ") || "Reliable public source" } : null,
+    workforceCapacityAnalysis?.metrics.openRoleRatio !== null && workforceCapacityAnalysis ? { label: "Open position ratio", value: formatPercent(workforceCapacityAnalysis.metrics.openRoleRatio), source: "Public open roles divided by reliable estimated employee count" } : null,
+    workforceCapacityAnalysis ? { label: "Leadership openings", value: String(workforceCapacityAnalysis.metrics.leadershipOpenings), source: "Public careers pages and hiring platforms" } : null,
+    responses["biggest-constraint"] ? { label: "Stated operating constraint", value: String(responses["biggest-constraint"]), source: "Assessment response" } : null
+  ].filter((item): item is SupportingMetric => Boolean(item));
 }
 
 function executiveSummaryParagraphs({
@@ -171,11 +172,13 @@ function executiveSummaryParagraphs({
   const peerText = percentile === null ? "peer comparison is limited by available public data" : `benchmark position is approximately the ${percentile}th percentile`;
   const strongestBenchmark = benchmarks.filter((item) => item.percentile !== null).sort((a, b) => (b.percentile || 0) - (a.percentile || 0))[0];
   const weakestBenchmark = benchmarks.filter((item) => item.percentile !== null).sort((a, b) => (a.percentile || 0) - (b.percentile || 0))[0];
+  const barrierText = naturalList([...constraints, ...risks].slice(0, 2));
+  const priorityText = naturalList(priorities.slice(0, 3));
 
   return [
     `${profile.organization || "The organization"} is positioned at ${operationalStrainSpiral.currentStage}: ${operationalStrainSpiral.stageDescription} Organizational Health is ${organizationalHealthScore.totalScore}/100 and Growth Readiness is ${growthReadinessScore.score}/100. Overall resilience appears ${organizationalHealthScore.totalScore >= 70 ? "sound with targeted watch areas" : "constrained but actionable"}, and ${peerText}${strongestBenchmark ? `; strongest peer signal is ${strongestBenchmark.metric}.` : "."}`,
-    `The main barriers are ${constraints.slice(0, 2).join(" ") || risks.slice(0, 2).join(" ") || "not fully visible in the available public data"}. Internally, assessment strain is ${result.riskScore}/100, with pressure most visible in ${result.topRiskDomains.map((domain) => domain.shortTitle).join(", ") || "the highest-scoring sections"}.${weakestBenchmark ? ` The weakest benchmark signal is ${weakestBenchmark.metric} at the ${weakestBenchmark.percentile}th percentile.` : ""}`,
-    `The improvement path is to focus on ${priorities.slice(0, 2).join(" ") || "the highest-impact operating priorities"} while protecting leadership bandwidth and execution capacity. The opportunity is to convert operational visibility, workflow standardization, and automation readiness into a more scalable operating model.`
+    `The main barriers are ${barrierText || "not fully visible in the available public data"}. Internally, assessment strain is ${result.riskScore}/100, with pressure most visible in ${result.topRiskDomains.map((domain) => domain.shortTitle).join(", ") || "the highest-scoring sections"}.${weakestBenchmark ? ` The weakest benchmark signal is ${weakestBenchmark.metric} at the ${weakestBenchmark.percentile}th percentile.` : ""}`,
+    `The clearest improvement path is to ${priorityText ? priorityText.charAt(0).toLowerCase() + priorityText.slice(1) : "focus on the highest-impact operating priorities"} while protecting leadership bandwidth and execution capacity. The opportunity is to convert operational visibility, workflow standardization, and automation readiness into a more scalable operating model.`
   ].map((paragraph) => paragraph.replace(/\s+/g, " ").trim());
 }
 
@@ -207,8 +210,8 @@ function executiveKpis({
   benchmarks: BenchmarkComparison[];
 }) {
   const latest = latestFinancialYear(enhancedAnalysis);
-  const currentRatio = metric(latest, "currentRatio");
-  const monthsCash = metric(latest, "monthsCashOnHand");
+  const currentRatio = reliableMetric(latest, "currentRatio");
+  const monthsCash = reliableMetric(latest, "monthsCashOnHand");
   const surplusMargin = metric(latest, "surplusMargin");
   const revenueGrowth = metric(latest, "revenueGrowth");
   const revenueConcentration = metric(latest, "revenueConcentration");
@@ -221,23 +224,35 @@ function executiveKpis({
   const benchmarkPercentile = organizationalHealthScore.percentileRanking;
   const automationIndex = organizationalHealthScore.categoryScores["AI/Automation Readiness"];
 
-  return [
+  const groups: Array<Omit<ExecutiveKpiGroup, "items"> & { items: Array<ExecutiveKpi | null> }> = [
     {
       title: "Financial Stability KPIs" as const,
       items: [
-        kpi("Months Cash on Hand", monthsCash === null ? "Unavailable" : `${formatNumber(monthsCash, 1)} months`, indicatorFromHigher(monthsCash, 6, 3), sourceForMetric(latest, "monthsCashOnHand")),
+        hasReliableMetric(latest, "monthsCashOnHand") ? kpi("Months Cash on Hand", `${formatNumber(monthsCash, 1)} months`, indicatorFromHigher(monthsCash, 6, 3), sourceForMetric(latest, "monthsCashOnHand")) : null,
+        metric(latest, "totalRevenue") !== null ? kpi("Total Revenue", formatMoney(metric(latest, "totalRevenue")), "watch", sourceForMetric(latest, "totalRevenue")) : null,
+        metric(latest, "totalExpenses") !== null ? kpi("Total Expenses", formatMoney(metric(latest, "totalExpenses")), "watch", sourceForMetric(latest, "totalExpenses")) : null,
+        metric(latest, "surplusDeficit") !== null ? kpi("Surplus / Deficit", formatMoney(metric(latest, "surplusDeficit")), indicatorFromHigher(metric(latest, "surplusDeficit"), 0, -1), sourceForMetric(latest, "surplusDeficit")) : null,
         kpi("Surplus Margin", formatPercent(surplusMargin), indicatorFromHigher(surplusMargin, 0.03, 0), sourceForMetric(latest, "surplusMargin")),
         kpi("Revenue Growth Rate", formatPercent(revenueGrowth), indicatorFromHigher(revenueGrowth, 0.05, 0), sourceForMetric(latest, "revenueGrowth")),
-        kpi("Current Ratio", formatNumber(currentRatio, 2), indicatorFromHigher(currentRatio, 2, 1), sourceForMetric(latest, "currentRatio")),
-        kpi("Revenue Concentration", formatPercent(revenueConcentration), indicatorFromLower(revenueConcentration, 0.35, 0.6), sourceForMetric(latest, "revenueConcentration")),
-        kpi("Unrestricted Reserve Ratio", expenses && unrestricted !== null ? formatPercent(unrestricted / expenses) : "Unavailable", indicatorFromHigher(expenses && unrestricted !== null ? unrestricted / expenses : null, 0.3, 0.1), sourceForMetric(latest, "netAssetsWithoutDonorRestrictions"))
+        hasReliableMetric(latest, "currentRatio") ? kpi("Current Ratio", formatNumber(currentRatio, 2), indicatorFromHigher(currentRatio, 2, 1), sourceForMetric(latest, "currentRatio")) : null,
+        revenueConcentration !== null ? kpi("Revenue Concentration", formatPercent(revenueConcentration), indicatorFromLower(revenueConcentration, 0.35, 0.6), sourceForMetric(latest, "revenueConcentration")) : null,
+        metric(latest, "programExpenseRatio") !== null ? kpi("Program Expense Ratio", formatPercent(metric(latest, "programExpenseRatio")), indicatorFromHigher(metric(latest, "programExpenseRatio"), 0.75, 0.65), sourceForMetric(latest, "programExpenseRatio")) : null,
+        metric(latest, "fundraisingExpenseRatio") !== null ? kpi("Fundraising Expense Ratio", formatPercent(metric(latest, "fundraisingExpenseRatio")), indicatorFromLower(metric(latest, "fundraisingExpenseRatio"), 0.12, 0.2), sourceForMetric(latest, "fundraisingExpenseRatio")) : null,
+        metric(latest, "managementGeneralExpenseRatio") !== null ? kpi("Admin / Management Expense Ratio", formatPercent(metric(latest, "managementGeneralExpenseRatio")), indicatorFromLower(metric(latest, "managementGeneralExpenseRatio"), 0.15, 0.25), sourceForMetric(latest, "managementGeneralExpenseRatio")) : null,
+        unrestricted !== null ? kpi("Unrestricted Net Assets", formatMoney(unrestricted), indicatorFromHigher(unrestricted, 1, 0), sourceForMetric(latest, "netAssetsWithoutDonorRestrictions")) : null,
+        expenses && unrestricted !== null ? kpi("Unrestricted Reserve Ratio", formatPercent(unrestricted / expenses), indicatorFromHigher(unrestricted / expenses, 0.3, 0.1), sourceForMetric(latest, "netAssetsWithoutDonorRestrictions")) : null
       ]
     },
     {
       title: "Operational KPIs" as const,
       items: [
-        kpi("Open Role Ratio", formatPercent(workforceCapacityAnalysis?.metrics.openRoleRatio ?? null), indicatorFromLower(workforceCapacityAnalysis?.metrics.openRoleRatio ?? null, 0.04, 0.08), "Public hiring sources"),
-        kpi("Average Requisition Aging", workforceCapacityAnalysis?.metrics.averageRequisitionAgeDays === null || !workforceCapacityAnalysis ? "Unavailable" : `${workforceCapacityAnalysis.metrics.averageRequisitionAgeDays} days`, indicatorFromLower(workforceCapacityAnalysis?.metrics.averageRequisitionAgeDays ?? null, 30, 60), "Public hiring sources"),
+        workforceCapacityAnalysis ? kpi("Open Positions", String(workforceCapacityAnalysis.metrics.totalOpenPositions), indicatorFromLower(workforceCapacityAnalysis.metrics.totalOpenPositions, 2, 8), "Public hiring sources") : null,
+        workforceCapacityAnalysis?.workforceSize.estimatedEmployeeCount && workforceCapacityAnalysis.workforceSize.confidence !== "low" ? kpi("Estimated Headcount", String(workforceCapacityAnalysis.workforceSize.estimatedEmployeeCount), "watch", workforceCapacityAnalysis.workforceSize.sources.join("; ")) : null,
+        workforceCapacityAnalysis?.metrics.openRoleRatio !== null && workforceCapacityAnalysis ? kpi("Open Position Ratio", formatPercent(workforceCapacityAnalysis.metrics.openRoleRatio), indicatorFromLower(workforceCapacityAnalysis.metrics.openRoleRatio, 0.04, 0.08), "Public hiring sources") : null,
+        workforceCapacityAnalysis ? kpi("Leadership Openings", String(workforceCapacityAnalysis.metrics.leadershipOpenings), indicatorFromLower(workforceCapacityAnalysis.metrics.leadershipOpenings, 0.5, 2), "Public hiring sources") : null,
+        workforceCapacityAnalysis?.metrics.averageRequisitionAgeDays !== null && workforceCapacityAnalysis ? kpi("Average Requisition Age", `${workforceCapacityAnalysis.metrics.averageRequisitionAgeDays} days`, indicatorFromLower(workforceCapacityAnalysis.metrics.averageRequisitionAgeDays, 30, 60), "Public hiring sources") : null,
+        workforceCapacityAnalysis?.metrics.percentOpenMoreThan60Days !== null && workforceCapacityAnalysis ? kpi("Roles Open >60 Days", formatPercent(workforceCapacityAnalysis.metrics.percentOpenMoreThan60Days), indicatorFromLower(workforceCapacityAnalysis.metrics.percentOpenMoreThan60Days, 0.15, 0.35), "Public hiring sources") : null,
+        workforceCapacityAnalysis ? kpi("Hiring Concentration by Department", topDepartment(workforceCapacityAnalysis.metrics.openPositionsByDepartment), "watch", "Public hiring sources") : null,
         kpi("Systems Fragmentation Score", systemsRisk === null ? "Unavailable" : `${systemsRisk}/100 strain`, indicatorFromLower(systemsRisk, 35, 60), "Assessment response"),
         kpi("Manual Process Dependency", processRisk === null ? "Unavailable" : `${processRisk}/100 strain`, indicatorFromLower(processRisk, 35, 60), "Assessment response"),
         kpi("Staffing Pressure Indicator", staffingRisk === null ? "Unavailable" : `${staffingRisk}/100 strain`, indicatorFromLower(staffingRisk, 35, 60), "Assessment response and public hiring")
@@ -263,6 +278,11 @@ function executiveKpis({
       ]
     }
   ];
+
+  return groups.map((group): ExecutiveKpiGroup => ({
+    ...group,
+    items: group.items.filter((item): item is ExecutiveKpi => item !== null && item.value !== "Unavailable")
+  }));
 }
 
 function kpi(label: string, value: string, indicator: "strong" | "watch" | "constrained" | "critical" | "unknown", source: string) {
@@ -283,6 +303,45 @@ function indicatorFromLower(value: number | null, strongMax: number, watchMax: n
   if (value <= watchMax) return "watch" as const;
   if (value <= watchMax * 1.5) return "constrained" as const;
   return "critical" as const;
+}
+
+function rewriteConstraintAsAction(constraint: string) {
+  if (/systems|integration|technology/i.test(constraint)) return "Prioritize systems integration and reporting consistency.";
+  if (/liquidity|cash|reserve|financial/i.test(constraint)) return "Improve financial visibility and reserve planning before adding new operating complexity.";
+  if (/process|fragmentation|workflow|knowledge/i.test(constraint)) return "Reduce process fragmentation before adding new program or revenue complexity.";
+  if (/staff|hiring|vacanc/i.test(constraint)) return "Resolve critical hiring and role coverage gaps before expanding workload.";
+  if (/revenue|concentration/i.test(constraint)) return "Strengthen revenue diversification and renewal visibility.";
+  return constraint;
+}
+
+function rewriteDriverAsAction(driver: string) {
+  if (/systems/i.test(driver)) return "Strengthen system integration, data quality, and reporting ownership.";
+  if (/workforce|staff/i.test(driver)) return "Prioritize critical vacancy coverage and workload visibility.";
+  if (/financial|liquidity|revenue/i.test(driver)) return "Create a tighter financial operating cadence around revenue, expense, and reserve signals.";
+  if (/process|fragmentation/i.test(driver)) return "Standardize high-volume workflows and clarify cross-functional handoffs.";
+  return `Stabilize ${driver.split(":")[0].toLowerCase()} before scaling.`;
+}
+
+function naturalList(items: string[]) {
+  const cleaned = items.map((item) => item.replace(/\.$/, "").trim()).filter(Boolean);
+  if (!cleaned.length) return "";
+  if (cleaned.length === 1) return cleaned[0].toLowerCase();
+  return `${cleaned.slice(0, -1).join(", ").toLowerCase()}, and ${cleaned[cleaned.length - 1].toLowerCase()}`;
+}
+
+function topDepartment(departments: Record<string, number>) {
+  const top = Object.entries(departments).sort((a, b) => b[1] - a[1])[0];
+  return top ? `${top[0]} (${top[1]})` : "No concentration detected";
+}
+
+function dataQualityNotes(enhancedAnalysis: EnhancedAnalysisResult | null, workforceCapacityAnalysis: WorkforceCapacityAnalysis | null) {
+  const latest = latestFinancialYear(enhancedAnalysis);
+  const notes: string[] = [];
+  if (!hasReliableMetric(latest, "monthsCashOnHand")) notes.push("Months cash on hand was excluded from the main report because cash and average monthly expense data were not available with medium/high confidence.");
+  if (!hasReliableMetric(latest, "currentRatio")) notes.push("Current ratio was excluded from the main report because current assets and current liabilities were not available with medium/high confidence.");
+  if (!workforceCapacityAnalysis?.workforceSize.estimatedEmployeeCount || workforceCapacityAnalysis.workforceSize.confidence === "low") notes.push("Employee count unavailable from reliable public sources; open position ratio was not calculated.");
+  if (workforceCapacityAnalysis && workforceCapacityAnalysis.metrics.averageRequisitionAgeDays === null) notes.push("Job age unavailable because public posting dates were not available from the reviewed hiring sources.");
+  return notes;
 }
 
 function sourceForMetric(year: ReturnType<typeof latestFinancialYear>, metricName: Parameters<typeof metric>[1]) {

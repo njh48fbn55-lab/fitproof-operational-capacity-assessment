@@ -11,7 +11,7 @@ export function staffingMetricsService(roles: CareersRole[], workforceSize: Work
     return counts;
   }, {});
   const leadershipOpenings = roles.filter((role) => role.leadershipLevel === "executive" || role.leadershipLevel === "senior_leader").length;
-  const estimatedEmployeeCount = workforceSize.estimatedEmployeeCount;
+  const estimatedEmployeeCount = workforceSize.confidence === "high" || workforceSize.confidence === "medium" ? workforceSize.estimatedEmployeeCount : null;
 
   return {
     totalOpenPositions,
@@ -26,7 +26,7 @@ export function staffingMetricsService(roles: CareersRole[], workforceSize: Work
 }
 
 function requisitionAgeDays(role: CareersRole) {
-  const raw = role.postedDate || role.updatedDate;
+  const raw = role.postedDate || role.updatedDate || role.firstSeenAt;
   if (!raw) return null;
   const date = new Date(raw);
   if (!Number.isFinite(date.getTime())) return null;
