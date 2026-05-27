@@ -117,9 +117,11 @@ export function extractLinks(html: string, baseUrl: string, pattern: RegExp, lim
 export function moneyFromText(text: string, labelPattern: RegExp) {
   const match = text.match(labelPattern);
   if (!match?.[1]) return null;
-  const value = match[1].replace(/[$,\s]/g, "");
+  const raw = match[1].trim();
+  const negative = raw.startsWith("(") && raw.endsWith(")");
+  const value = raw.replace(/[$,\s()]/g, "");
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
+  return Number.isFinite(parsed) ? (negative ? -parsed : parsed) : null;
 }
 
 export function localDataDir() {

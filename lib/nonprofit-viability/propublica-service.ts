@@ -17,14 +17,23 @@ type ProPublicaOrganization = {
 
 type ProPublicaFiling = Record<string, number | string | null | undefined> & {
   tax_prd_yr?: number;
+  tax_yr?: number;
+  taxyr?: number;
+  taxyear?: number;
   tax_prd?: number;
+  taxprd?: number;
   totrevenue?: number;
   totrevnue?: number;
   totrcptperbks?: number;
+  totalrevenue?: number;
+  grsinc?: number;
   totexpenses?: number;
   totfuncexpns?: number;
+  totalexpenses?: number;
   totassetsend?: number;
+  totalassetsend?: number;
   totliabend?: number;
+  totalliabilitiesend?: number;
   netassetsend?: number;
   cashnoninterestbearing?: number;
   svngstempinv?: number;
@@ -141,13 +150,13 @@ export function financialYearsFromProPublica(payload: any): FinancialYear[] {
     .slice(0, 5);
 
   const years = filings.map((filing) => {
-    const fiscalYear = Number(filing.tax_prd_yr || String(filing.tax_prd || "").slice(0, 4) || new Date().getFullYear());
-    const totalRevenue = firstNumber([filing.totrevenue, filing.totrevnue, filing.totrcptperbks]);
-    const totalExpenses = firstNumber([filing.totfuncexpns, filing.totexpenses]);
+    const fiscalYear = filingYear(filing);
+    const totalRevenue = firstNumber([filing.totrevenue, filing.totrevnue, filing.totrcptperbks, filing.totalrevenue, filing.grsinc]);
+    const totalExpenses = firstNumber([filing.totfuncexpns, filing.totexpenses, filing.totalexpenses]);
     const surplus = totalRevenue !== null && totalExpenses !== null ? totalRevenue - totalExpenses : null;
     const cashAndInvestments = sumNumbers([filing.cashnoninterestbearing, filing.svngstempinv, filing.invstmntsend]);
-    const totalAssets = numberOrNull(filing.totassetsend);
-    const totalLiabilities = numberOrNull(filing.totliabend);
+    const totalAssets = firstNumber([filing.totassetsend, filing.totalassetsend]);
+    const totalLiabilities = firstNumber([filing.totliabend, filing.totalliabilitiesend]);
     const netAssets = numberOrNull(filing.netassetsend);
     const programRatio = ratio(numberOrNull(filing.totprgmrevnue), totalExpenses);
     const fundraisingRatio = ratio(numberOrNull(filing.fundraisngfees), totalExpenses);
@@ -185,6 +194,14 @@ function metric(name: FinancialYear["metrics"][number]["name"], value: number | 
     extractionMethod: "990" as const,
     sourceNote: value === null ? "Source did not provide this field." : undefined
   };
+}
+
+function filingYear(filing: ProPublicaFiling) {
+  const directYear = firstNumber([filing.tax_prd_yr, filing.tax_yr, filing.taxyr, filing.taxyear]);
+  if (directYear) return directYear;
+  const period = String(filing.tax_prd || filing.taxprd || "");
+  const year = Number(period.slice(0, 4));
+  return Number.isFinite(year) && year > 1900 ? year : new Date().getFullYear();
 }
 
 function numberOrNull(value: unknown) {

@@ -49,7 +49,7 @@ function auditToFinancialYear(extraction: AuditExtraction): FinancialYear | null
   return {
     fiscalYear,
     sourcePriority: 1,
-    sourceNote: "Uploaded or website audit data is preferred over Form 990 when available. Conflicts should be reviewed against the audit.",
+    sourceNote: "Uploaded reports, website financial disclosures, annual reports, and audited statements are preferred over Form 990 when they provide a newer or more detailed value. Conflicts should be reviewed against the source document.",
     metrics
   };
 }
