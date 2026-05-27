@@ -58,6 +58,14 @@ test("core systems uses two-stage tool mapping and does not score vendor choice 
   assert.equal(capacity.includes("Blackbaud Raiser’s Edge NXT\", risk"), false);
 });
 
+test("core systems supports multiselect tools and keeps none or unknown exclusive", () => {
+  assert.match(capacity, /tools\?: Partial<Record<SystemCategory, string \| string\[\]>>/);
+  assert.match(page, /const exclusive = value === "None" \|\| value === "I don't know"/);
+  assert.match(page, /existing\.filter\(\(item\) => item !== "None" && item !== "I don't know"\)/);
+  assert.equal(page.includes("Which system is considered the source of truth?"), false);
+  assert.equal(page.includes("Where does duplicate data entry most often occur?"), false);
+});
+
 test("low-information free text is ignored for additional context", () => {
   assert.match(capacity, /isMeaningfulActionableText/);
   assert.match(capacity, /not sure\|unsure\|n\\\/a\|na\|none/);

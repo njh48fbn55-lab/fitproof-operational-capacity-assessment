@@ -39,13 +39,9 @@ export type Lead = {
 export type SystemCategory = "fundraising" | "crm" | "finance" | "reporting" | "operations";
 
 export type SystemMappingResponse = {
-  tools?: Partial<Record<SystemCategory, string>>;
+  tools?: Partial<Record<SystemCategory, string | string[]>>;
   otherTools?: Partial<Record<SystemCategory, string>>;
   integration?: string;
-  duplicateEntry?: string[];
-  duplicateEntryOther?: string;
-  sourceOfTruth?: string;
-  sourceOfTruthOther?: string;
   reportConfidence?: string;
 };
 
@@ -140,29 +136,6 @@ export const systemCategories: Array<{ id: SystemCategory; label: string; option
   }
 ];
 
-export const duplicateEntryOptions = [
-  "Fundraising to CRM",
-  "Fundraising to finance",
-  "Finance to reporting",
-  "Program data to reporting",
-  "Operations/project data to reporting",
-  "Board reports",
-  "No major duplicate entry",
-  "I don't know",
-  "Other"
-];
-
-export const sourceOfTruthOptions = [
-  "CRM/fundraising system",
-  "Finance system",
-  "Reporting or BI tool",
-  "Excel / Google Sheets",
-  "Different systems for different teams",
-  "No clear source of truth",
-  "I don't know",
-  "Other"
-];
-
 export const integrationOptions: AnswerOption[] = [
   { label: "Systems share data automatically", risk: 0 },
   { label: "Some systems share data automatically, but manual work remains", risk: 1 },
@@ -220,7 +193,7 @@ export const questions: Question[] = [
     prompt: "Which tools support your core systems, and how well do they work together?",
     type: "systems-map",
     helperText: "Select the main tool in each category, then answer the integration and reporting-confidence questions below.",
-    helpText: "This maps the tools your organization relies on and whether they work together. The score is based on integration, duplicate entry, report confidence, and source-of-truth clarity, not on whether a specific vendor is good or bad."
+    helpText: "This maps the tools your organization relies on and whether they work together. Select all tools used in each category. The score is based on integration and report confidence, not on whether a specific vendor is good or bad."
   },
   { id: "manual-workarounds", domainId: "systems", prompt: "How often do teams rely on spreadsheets or manual workarounds outside core systems?", type: "single", options: frequency },
   { id: "performance-view", domainId: "systems", prompt: "How difficult is it to obtain a complete view of performance across departments?", type: "single", options: easePositive },
@@ -310,21 +283,11 @@ function riskForSystemMapping(answer: Responses[string]) {
   if (typeof integrationRisk === "number") risks.push(integrationRisk);
   if (typeof confidenceRisk === "number") risks.push(confidenceRisk);
 
-  const selectedTools = systemCategories.map((category) => answer.tools?.[category.id]).filter(Boolean) as string[];
+  const selectedTools = systemCategories.flatMap((category) => selectedSystemTools(answer, category.id));
   const noneCount = selectedTools.filter((tool) => tool === "None").length;
   const unknownCount = selectedTools.filter((tool) => tool === "I don't know").length;
   if (noneCount) risks.push(Math.min(4, noneCount));
   if (unknownCount) risks.push(Math.min(3, unknownCount));
-
-  const duplicateEntry = answer.duplicateEntry || [];
-  if (duplicateEntry.includes("No major duplicate entry")) risks.push(0);
-  else if (duplicateEntry.includes("I don't know")) risks.push(2);
-  else if (duplicateEntry.length) risks.push(Math.min(4, duplicateEntry.length));
-
-  if (answer.sourceOfTruth === "No clear source of truth") risks.push(4);
-  if (answer.sourceOfTruth === "Different systems for different teams") risks.push(3);
-  if (answer.sourceOfTruth === "Excel / Google Sheets") risks.push(2);
-  if (answer.sourceOfTruth === "I don't know") risks.push(2);
 
   return risks.length ? risks.reduce((sum, risk) => sum + risk, 0) / risks.length : null;
 }
@@ -420,18 +383,24 @@ export function getSystemMappingSummary(responses: Responses) {
   if (!isSystemMappingResponse(answer)) return "";
   const tools = systemCategories
     .map((category) => {
-      const selected = answer.tools?.[category.id];
-      if (!selected || selected === "I don't know") return "";
-      const label = selected === "Other" ? answer.otherTools?.[category.id] : selected;
-      return label ? `${category.label}: ${label}` : "";
+      const selected = selectedSystemTools(answer, category.id);
+      if (!selected.length || selected.includes("I don't know")) return "";
+      const labels = selected
+        .map((tool) => (tool === "Other" ? answer.otherTools?.[category.id] : tool))
+        .filter(Boolean);
+      return labels.length ? `${category.label}: ${labels.join(", ")}` : "";
     })
     .filter(Boolean);
   const details = [
     tools.length ? `Selected systems include ${tools.join("; ")}.` : "",
     answer.integration ? `Integration pattern: ${answer.integration}.` : "",
-    answer.sourceOfTruth ? `Source of truth: ${answer.sourceOfTruth === "Other" ? answer.sourceOfTruthOther || "Other" : answer.sourceOfTruth}.` : "",
-    answer.reportConfidence ? `Leadership report confidence: ${answer.reportConfidence}.` : "",
-    answer.duplicateEntry?.length ? `Duplicate entry appears around ${answer.duplicateEntry.join(", ")}.` : ""
+    answer.reportConfidence ? `Leadership report confidence: ${answer.reportConfidence}.` : ""
   ];
   return details.filter(Boolean).join(" ");
+}
+
+export function selectedSystemTools(answer: SystemMappingResponse, category: SystemCategory) {
+  const selected = answer.tools?.[category];
+  if (!selected) return [];
+  return Array.isArray(selected) ? selected : [selected];
 }

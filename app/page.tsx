@@ -18,11 +18,10 @@ import {
   scoreAssessment,
   stageRecommendations,
   systemCategories,
-  duplicateEntryOptions,
   integrationOptions,
   isSystemMappingResponse,
   reportingConfidenceOptions,
-  sourceOfTruthOptions,
+  selectedSystemTools,
   SystemCategory,
   SystemMappingResponse
 } from "@/lib/operational-capacity";
@@ -136,12 +135,11 @@ function hasAnswer(question: Question, responses: Responses) {
   if (question.type === "systems-map") {
     if (!isSystemMappingResponse(value)) return false;
     const toolsComplete = systemCategories.every((category) => {
-      const selected = value.tools?.[category.id];
-      if (!selected) return false;
-      return selected !== "Other" || Boolean(value.otherTools?.[category.id]?.trim());
+      const selected = selectedSystemTools(value, category.id);
+      if (!selected.length) return false;
+      return !selected.includes("Other") || Boolean(value.otherTools?.[category.id]?.trim());
     });
-    const sourceComplete = value.sourceOfTruth && (value.sourceOfTruth !== "Other" || Boolean(value.sourceOfTruthOther?.trim()));
-    return Boolean(toolsComplete && value.integration && value.duplicateEntry?.length && sourceComplete && value.reportConfidence);
+    return Boolean(toolsComplete && value.integration && value.reportConfidence);
   }
 
   if (question.type === "multi") {
@@ -204,28 +202,22 @@ export default function Home() {
     setResponses({ ...responses, "core-systems": { ...current, ...updates } });
   }
 
-  function setSystemTool(category: SystemCategory, value: string) {
+  function toggleSystemTool(category: SystemCategory, value: string) {
     const current = isSystemMappingResponse(responses["core-systems"]) ? responses["core-systems"] : {};
-    setSystemMapping({
-      tools: { ...current.tools, [category]: value },
-      otherTools: value === "Other" ? current.otherTools : { ...current.otherTools, [category]: "" }
-    });
+    const existing = selectedSystemTools(current, category);
+    const exclusive = value === "None" || value === "I don't know";
+    const next = exclusive
+      ? existing.includes(value) ? [] : [value]
+      : existing.includes(value)
+        ? existing.filter((item) => item !== value)
+        : [...existing.filter((item) => item !== "None" && item !== "I don't know"), value];
+    const otherTools = next.includes("Other") ? current.otherTools : { ...current.otherTools, [category]: "" };
+    setSystemMapping({ tools: { ...current.tools, [category]: next }, otherTools });
   }
 
   function setSystemOtherTool(category: SystemCategory, value: string) {
     const current = isSystemMappingResponse(responses["core-systems"]) ? responses["core-systems"] : {};
     setSystemMapping({ otherTools: { ...current.otherTools, [category]: value } });
-  }
-
-  function toggleDuplicateEntry(value: string) {
-    const current = isSystemMappingResponse(responses["core-systems"]) ? responses["core-systems"] : {};
-    const existing = current.duplicateEntry || [];
-    if (value === "No major duplicate entry" || value === "I don't know") {
-      setSystemMapping({ duplicateEntry: existing.includes(value) ? [] : [value] });
-      return;
-    }
-    const withoutExclusive = existing.filter((item) => item !== "No major duplicate entry" && item !== "I don't know");
-    setSystemMapping({ duplicateEntry: withoutExclusive.includes(value) ? withoutExclusive.filter((item) => item !== value) : [...withoutExclusive, value] });
   }
 
   async function submitLead() {
@@ -531,13 +523,9 @@ export default function Home() {
                             value={isSystemMappingResponse(responses["core-systems"]) ? responses["core-systems"] : {}}
                             missing={missing}
                             fieldStateClass={fieldStateClass}
-                            onToolChange={setSystemTool}
+                            onToolToggle={toggleSystemTool}
                             onOtherToolChange={setSystemOtherTool}
                             onIntegrationChange={(value) => setSystemMapping({ integration: value })}
-                            onDuplicateToggle={toggleDuplicateEntry}
-                            onDuplicateOtherChange={(value) => setSystemMapping({ duplicateEntryOther: value })}
-                            onSourceOfTruthChange={(value) => setSystemMapping({ sourceOfTruth: value })}
-                            onSourceOfTruthOtherChange={(value) => setSystemMapping({ sourceOfTruthOther: value })}
                             onReportConfidenceChange={(value) => setSystemMapping({ reportConfidence: value })}
                           />
                         ) : question.type === "text" ? (
@@ -680,55 +668,49 @@ function SystemsMappingInput({
   value,
   missing,
   fieldStateClass,
-  onToolChange,
+  onToolToggle,
   onOtherToolChange,
   onIntegrationChange,
-  onDuplicateToggle,
-  onDuplicateOtherChange,
-  onSourceOfTruthChange,
-  onSourceOfTruthOtherChange,
   onReportConfidenceChange
 }: {
   value: SystemMappingResponse;
   missing: boolean;
   fieldStateClass: string;
-  onToolChange: (category: SystemCategory, value: string) => void;
+  onToolToggle: (category: SystemCategory, value: string) => void;
   onOtherToolChange: (category: SystemCategory, value: string) => void;
   onIntegrationChange: (value: string) => void;
-  onDuplicateToggle: (value: string) => void;
-  onDuplicateOtherChange: (value: string) => void;
-  onSourceOfTruthChange: (value: string) => void;
-  onSourceOfTruthOtherChange: (value: string) => void;
   onReportConfidenceChange: (value: string) => void;
 }) {
+  const topRow = systemCategories.slice(0, 2);
+  const secondRow = systemCategories.slice(2);
+
   return (
     <div className="mt-3 grid gap-4">
-      <div className="grid gap-3 lg:grid-cols-5">
-        {systemCategories.map((category) => {
-          const selected = value.tools?.[category.id] || "";
-          return (
-            <label key={category.id} className="grid gap-1.5">
-              <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate">{category.label}</span>
-              <select
-                value={selected}
-                onChange={(event) => onToolChange(category.id, event.target.value)}
-                aria-invalid={missing && !selected}
-                className={`min-h-11 rounded border bg-white px-3 py-2 text-sm font-semibold text-ink outline-none transition focus:ring-4 ${fieldStateClass}`}
-              >
-                <option value="">Select a system</option>
-                {category.options.map((option) => <option key={option} value={option}>{option}</option>)}
-              </select>
-              {selected === "Other" && (
-                <input
-                  value={value.otherTools?.[category.id] || ""}
-                  onChange={(event) => onOtherToolChange(category.id, event.target.value)}
-                  placeholder="Please name the system."
-                  className={`min-h-10 rounded border bg-white px-3 py-2 text-sm outline-none focus:ring-4 ${fieldStateClass}`}
-                />
-              )}
-            </label>
-          );
-        })}
+      <div className="grid gap-3 lg:grid-cols-2">
+        {topRow.map((category) => (
+          <SystemCategoryPicker
+            key={category.id}
+            category={category}
+            value={value}
+            missing={missing}
+            fieldStateClass={fieldStateClass}
+            onToolToggle={onToolToggle}
+            onOtherToolChange={onOtherToolChange}
+          />
+        ))}
+      </div>
+      <div className="grid gap-3 lg:grid-cols-3">
+        {secondRow.map((category) => (
+          <SystemCategoryPicker
+            key={category.id}
+            category={category}
+            value={value}
+            missing={missing}
+            fieldStateClass={fieldStateClass}
+            onToolToggle={onToolToggle}
+            onOtherToolChange={onOtherToolChange}
+          />
+        ))}
       </div>
 
       <div className="grid gap-3 md:grid-cols-2">
@@ -740,54 +722,59 @@ function SystemsMappingInput({
           </select>
         </label>
         <label className="grid gap-1.5">
-          <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate">Which system is considered the source of truth?</span>
-          <select value={value.sourceOfTruth || ""} onChange={(event) => onSourceOfTruthChange(event.target.value)} className={`min-h-11 rounded border bg-white px-3 py-2 text-sm font-semibold outline-none focus:ring-4 ${fieldStateClass}`}>
+          <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate">How confident are you that leadership can trust reports generated from these systems?</span>
+          <select value={value.reportConfidence || ""} onChange={(event) => onReportConfidenceChange(event.target.value)} className={`min-h-11 rounded border bg-white px-3 py-2 text-sm font-semibold outline-none focus:ring-4 ${fieldStateClass}`}>
             <option value="">Select a response</option>
-            {sourceOfTruthOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+            {reportingConfidenceOptions.map((option) => <option key={option.label} value={option.label}>{option.label}</option>)}
           </select>
-          {value.sourceOfTruth === "Other" && (
-            <input
-              value={value.sourceOfTruthOther || ""}
-              onChange={(event) => onSourceOfTruthOtherChange(event.target.value)}
-              placeholder="Please name the source of truth."
-              className={`min-h-10 rounded border bg-white px-3 py-2 text-sm outline-none focus:ring-4 ${fieldStateClass}`}
-            />
-          )}
         </label>
       </div>
+    </div>
+  );
+}
 
-      <div className="grid gap-2">
-        <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate">Where does duplicate data entry most often occur?</span>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {duplicateEntryOptions.map((option) => (
-            <label key={option} className="flex min-h-10 cursor-pointer items-center gap-2 rounded border border-line bg-white px-3 py-2 text-sm font-semibold hover:border-fitgreen">
-              <input
-                type="checkbox"
-                checked={(value.duplicateEntry || []).includes(option)}
-                onChange={() => onDuplicateToggle(option)}
-                className="size-4 accent-fitgreen"
-              />
-              <span>{option}</span>
-            </label>
-          ))}
-        </div>
-        {(value.duplicateEntry || []).includes("Other") && (
-          <input
-            value={value.duplicateEntryOther || ""}
-            onChange={(event) => onDuplicateOtherChange(event.target.value)}
-            placeholder="Please describe where duplicate entry occurs."
-            className={`min-h-10 rounded border bg-white px-3 py-2 text-sm outline-none focus:ring-4 ${fieldStateClass}`}
-          />
-        )}
+function SystemCategoryPicker({
+  category,
+  value,
+  missing,
+  fieldStateClass,
+  onToolToggle,
+  onOtherToolChange
+}: {
+  category: (typeof systemCategories)[number];
+  value: SystemMappingResponse;
+  missing: boolean;
+  fieldStateClass: string;
+  onToolToggle: (category: SystemCategory, value: string) => void;
+  onOtherToolChange: (category: SystemCategory, value: string) => void;
+}) {
+  const selected = selectedSystemTools(value, category.id);
+
+  return (
+    <div className={`rounded border bg-white p-3 ${missing && !selected.length ? "border-red-300" : "border-line"}`}>
+      <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate">{category.label}</p>
+      <div className="mt-2 grid gap-2">
+        {category.options.map((option) => (
+          <label key={option} className="flex min-h-9 cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm font-semibold text-ink hover:bg-mist">
+            <input
+              type="checkbox"
+              checked={selected.includes(option)}
+              onChange={() => onToolToggle(category.id, option)}
+              className="size-4 accent-fitgreen"
+            />
+            <span>{option}</span>
+          </label>
+        ))}
       </div>
-
-      <label className="grid gap-1.5">
-        <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate">How confident are you that leadership can trust reports generated from these systems?</span>
-        <select value={value.reportConfidence || ""} onChange={(event) => onReportConfidenceChange(event.target.value)} className={`min-h-11 rounded border bg-white px-3 py-2 text-sm font-semibold outline-none focus:ring-4 ${fieldStateClass}`}>
-          <option value="">Select a response</option>
-          {reportingConfidenceOptions.map((option) => <option key={option.label} value={option.label}>{option.label}</option>)}
-        </select>
-      </label>
+      {selected.includes("Other") && (
+        <input
+          value={value.otherTools?.[category.id] || ""}
+          onChange={(event) => onOtherToolChange(category.id, event.target.value)}
+          placeholder="Please name the system."
+          className={`mt-2 min-h-10 w-full rounded border bg-white px-3 py-2 text-sm outline-none focus:ring-4 ${fieldStateClass}`}
+        />
+      )}
+      {missing && !selected.length && <p className="mt-2 text-xs font-bold uppercase tracking-[0.12em] text-red-700">Required</p>}
     </div>
   );
 }
