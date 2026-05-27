@@ -10,6 +10,7 @@ import { stateRegistryService } from "./state-registry-service";
 import { EnhancedAnalysisRequest, EnhancedAnalysisResult, SourceDocument, WebsiteAnalysis } from "./types";
 import { viabilityScoringService } from "./viability-scoring-service";
 import { websiteAnalysisService } from "./website-analysis-service";
+import { websiteSophisticationService } from "./website-sophistication-service";
 import { makeId, normalizeEin, nowIso, writeJsonRecord } from "./utils";
 
 export async function nonprofitEnrichmentService(request: EnhancedAnalysisRequest): Promise<EnhancedAnalysisResult> {
@@ -79,6 +80,7 @@ export async function nonprofitEnrichmentService(request: EnhancedAnalysisReques
   auditExtractions.forEach((extraction) => sourceMap.set(extraction.sourceDocument.id, extraction.sourceDocument));
 
   const financialYears = financialTrendService(form990Years.length ? form990Years : propublicaFallback.financialYears, auditExtractions);
+  const websiteSophistication = websiteSophisticationService(websiteAnalysis);
   const viabilityScore = viabilityScoringService(financialYears, websiteAnalysis, registryResults, publicRecords);
   const sources = [...sourceMap.values()];
   const report = await reportGeneratorService({
@@ -95,6 +97,7 @@ export async function nonprofitEnrichmentService(request: EnhancedAnalysisReques
     organization,
     sources,
     websiteAnalysis,
+    websiteSophistication,
     annualReportAnalysis,
     registryResults,
     publicRecords,

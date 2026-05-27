@@ -25,8 +25,8 @@ export function staffingMetricsService(roles: CareersRole[], workforceSize: Work
   };
 }
 
-function requisitionAgeDays(role: CareersRole) {
-  const raw = role.postedDate || role.updatedDate || role.firstSeenAt;
+export function requisitionAgeDays(role: Pick<CareersRole, "postedDate" | "firstSeenAt">) {
+  const raw = role.postedDate || role.firstSeenAt;
   if (!raw) return null;
   const date = new Date(raw);
   if (!Number.isFinite(date.getTime())) return null;

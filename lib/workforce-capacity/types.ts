@@ -29,13 +29,18 @@ export type CareersRole = {
   updatedDate: string | null;
   firstSeenAt: string;
   lastSeenAt: string;
+  closedAt: string | null;
   employmentType: string | null;
   leadershipLevel: LeadershipLevel;
   requisitionUrl: string;
+  jobUrl: string;
   platform: CareersPlatform;
+  sourcePlatform: CareersPlatform;
   sourceName: string;
   confidence: ConfidenceLevel;
+  extractionConfidence: ConfidenceLevel;
   active: boolean;
+  status: "open" | "closed";
 };
 
 export type CareersCrawlResult = {
@@ -49,6 +54,11 @@ export type CareersCrawlResult = {
     postingsExtracted: number;
     postingsAfterDeduplication: number;
     sourceUrlsCrawled: string[];
+    pagesCrawled: number;
+    rawJobCount: number;
+    deduplicatedJobCount: number;
+    extractionErrors: string[];
+    javascriptRenderingRequired: boolean;
   };
 };
 

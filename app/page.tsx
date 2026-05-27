@@ -2,6 +2,7 @@
 
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import type { AuditExtraction } from "@/lib/nonprofit-viability/types";
+import { scoreToGaugeRotation } from "@/lib/report-gauge";
 import {
   AssessmentResult,
   domains,
@@ -44,6 +45,16 @@ type AnalysisJobStatus = {
   progressPercent: number;
   errorMessage?: string | null;
 };
+
+const loadingMessages = [
+  "Reviewing assessment responses...",
+  "Searching for public financial data...",
+  "Checking available annual and impact reports...",
+  "Reviewing website and program signals...",
+  "Looking for public hiring and workforce indicators...",
+  "Synthesizing operational health, growth readiness, and strain signals...",
+  "Preparing your executive report..."
+];
 
 const questionNumbers = questions.reduce<Record<string, number>>((numbers, question, index) => {
   numbers[question.id] = index + 1;
@@ -866,6 +877,49 @@ function readableStep(step: string) {
   return labels[step] || "Working on the analysis.";
 }
 
+function FitProofLoadingScreen({ message, progressPercent }: { message: string; progressPercent: number }) {
+  const clamped = Math.max(5, Math.min(96, progressPercent));
+
+  return (
+    <section className="overflow-hidden rounded border border-fitgreen/30 bg-white p-5 shadow-soft">
+      <div className="grid gap-5 md:grid-cols-[220px_1fr] md:items-center">
+        <div className="grid place-items-center rounded bg-panel p-5">
+          <img src="/fitproof-logo-trimmed.png" alt="FitProof" className="h-16 w-auto object-contain" />
+          <div className="mt-5 flex items-center gap-2" aria-hidden="true">
+            {[0, 1, 2, 3].map((node) => (
+              <span
+                key={node}
+                className="size-3 rounded-full bg-fitgreen"
+                style={{ animation: "fitproofPulse 1.4s ease-in-out infinite", animationDelay: `${node * 0.18}s` }}
+              />
+            ))}
+          </div>
+        </div>
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-fitgreen">FitProof analysis</p>
+          <h3 className="mt-2 text-2xl font-bold tracking-tight">Building your operational intelligence report</h3>
+          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate">
+            FitProof is gathering public financial, workforce, website, and assessment signals to create a more complete view of organizational health.
+          </p>
+          <div className="mt-5 h-2 overflow-hidden rounded-full bg-mist">
+            <div className="h-full rounded-full bg-fitgreen transition-all duration-700" style={{ width: `${clamped}%` }} />
+          </div>
+          <p className="mt-3 text-sm font-bold text-ink">{message}</p>
+          <p className="mt-2 text-sm leading-6 text-slate">
+            This may take a few moments. We are checking multiple sources so the report is more useful and evidence-based.
+          </p>
+        </div>
+      </div>
+      <style jsx>{`
+        @keyframes fitproofPulse {
+          0%, 100% { opacity: 0.28; transform: translateY(0) scale(0.82); }
+          50% { opacity: 1; transform: translateY(-4px) scale(1); }
+        }
+      `}</style>
+    </section>
+  );
+}
+
 function Report({
   profile,
   responses,
@@ -898,6 +952,15 @@ function Report({
   const date = new Intl.DateTimeFormat("en", { month: "long", day: "numeric", year: "numeric" }).format(new Date());
   const reportId = `FP-OCA-${date.replace(/[^A-Za-z0-9]/g, "").toUpperCase()}`;
   const [pdfExportError, setPdfExportError] = useState("");
+  const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
+
+  useEffect(() => {
+    if (!isGeneratingReport) return;
+    const interval = window.setInterval(() => {
+      setLoadingMessageIndex((index) => (index + 1) % loadingMessages.length);
+    }, 2400);
+    return () => window.clearInterval(interval);
+  }, [isGeneratingReport]);
 
   async function downloadPdfReport() {
     setPdfExportError("");
@@ -1030,7 +1093,8 @@ function Report({
                 <h2>Primary Operational Risks</h2><ul>${listItems(intelligence.primaryOperationalRisks)}</ul>
                 <h2>Growth Constraints</h2><ul>${listItems(intelligence.growthConstraints)}</ul>
                 <h2>Recommended Priorities</h2><ul>${listItems(intelligence.recommendedPriorities)}</ul>
-                <h2>Annual Report Analysis</h2><p>${escapeHtml(intelligence.annualReportInsight.status)}</p>${intelligence.annualReportInsight.score === null ? "" : `<p><strong>Annual Report Sophistication Score:</strong> ${escapeHtml(intelligence.annualReportInsight.score)}/100</p>`}<ul>${listItems(intelligence.annualReportInsight.findings)}</ul>
+                <h2>Website & Public Presence Assessment</h2><p>${escapeHtml(intelligence.websitePresenceAssessment.status)}</p>${intelligence.websitePresenceAssessment.score === null ? "" : `<p><strong>Website Sophistication Score:</strong> ${escapeHtml(intelligence.websitePresenceAssessment.score)}/100</p>`}<p>${escapeHtml(intelligence.websitePresenceAssessment.impact)}</p><ul>${listItems(intelligence.websitePresenceAssessment.recommendations)}</ul>
+                <h2>Public Reporting Sophistication</h2><p>${escapeHtml(intelligence.annualReportInsight.status)}</p>${intelligence.annualReportInsight.score === null ? "" : `<p><strong>Public Reporting Sophistication Score:</strong> ${escapeHtml(intelligence.annualReportInsight.score)}/100</p>`}<ul>${listItems(intelligence.annualReportInsight.findings)}</ul>
                 <h2>Supporting Source Appendix</h2>
                 <table><thead><tr><th>Metric</th><th>Value</th><th>Source</th></tr></thead><tbody>${intelligence.supportingMetrics.map((item) => `<tr><td>${escapeHtml(item.label)}</td><td>${escapeHtml(item.value)}</td><td>${escapeHtml(item.source)}</td></tr>`).join("")}</tbody></table>
                 ${intelligence.workforceExtractionDebug ? `<h2>Workforce Extraction Debug</h2><p>Careers page found: ${escapeHtml(intelligence.workforceExtractionDebug.careersPageFound || "None")}</p><p>ATS platform detected: ${escapeHtml(intelligence.workforceExtractionDebug.atsPlatformDetected || "None")}</p><p>Postings extracted: ${escapeHtml(intelligence.workforceExtractionDebug.postingsExtracted)}; after deduplication: ${escapeHtml(intelligence.workforceExtractionDebug.postingsAfterDeduplication)}</p><ul>${listItems(intelligence.workforceExtractionDebug.sourceUrlsCrawled)}</ul>` : ""}
@@ -1129,10 +1193,10 @@ function Report({
         </div>
         <div className="flex flex-col gap-2 print:hidden">
           <button type="button" onClick={downloadPdfReport} className="min-h-11 rounded bg-fitgreen px-4 text-sm font-bold text-blacktop transition hover:bg-blacktop hover:text-fitgreen">
-            Download Branded PDF
+            Download PDF
           </button>
           <button type="button" onClick={downloadWordReport} className="min-h-11 rounded bg-blacktop px-4 text-sm font-bold text-fitgreen transition hover:bg-fitgreen hover:text-blacktop">
-            Download Branded Word Document
+            Download Word Document
           </button>
         </div>
       </div>
@@ -1144,20 +1208,7 @@ function Report({
         </section>
       )}
 
-      {isGeneratingReport && (
-        <section className="rounded border border-fitgreen/40 bg-fitgreen/10 p-4">
-          <h3 className="text-lg font-bold">Enhanced Analysis Started</h3>
-          <p className="mt-2 text-sm leading-6 text-slate">
-            {analysisJob ? readableStep(analysisJob.currentStep) : "Preparing the analysis job."}
-          </p>
-          <div className="mt-3 h-2 overflow-hidden rounded-full bg-white">
-            <div className="h-full rounded-full bg-fitgreen transition-all" style={{ width: `${analysisJob?.progressPercent || 5}%` }} />
-          </div>
-          <p className="mt-2 text-xs font-bold uppercase tracking-[0.12em] text-slate">
-            {analysisJob?.progressPercent || 0}% complete {analysisJob?.id ? `| Job ${analysisJob.id}` : ""}
-          </p>
-        </section>
-      )}
+      {isGeneratingReport && <FitProofLoadingScreen message={loadingMessages[loadingMessageIndex]} progressPercent={analysisJob?.progressPercent || 8} />}
 
       {(reportError || generatedReport?.fallbackReason) && (
         <section className="rounded border border-line bg-panel p-4">
@@ -1525,10 +1576,41 @@ function OperationalIntelligenceView({
       </section>
 
       <section className="rounded border border-line bg-white p-4">
-        <h3 className="text-lg font-bold">Annual Report Analysis</h3>
+        <h3 className="text-lg font-bold">Website & Public Presence Assessment</h3>
+        <p className="mt-2 text-sm leading-6 text-slate">{intelligence.websitePresenceAssessment.status}</p>
+        {intelligence.websitePresenceAssessment.score !== null && (
+          <p className="mt-2 text-sm font-bold">Website Sophistication Score: {intelligence.websitePresenceAssessment.score}/100</p>
+        )}
+        <p className="mt-2 text-sm leading-6 text-slate">{intelligence.websitePresenceAssessment.impact}</p>
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <div>
+            <p className="text-sm font-bold">Strongest website signals</p>
+            <ul className="mt-1 grid gap-1 text-sm leading-6 text-slate">
+              {intelligence.websitePresenceAssessment.strongestSignals.map((signal) => <li key={signal}>{signal}</li>)}
+            </ul>
+          </div>
+          <div>
+            <p className="text-sm font-bold">Weakest website signals</p>
+            <ul className="mt-1 grid gap-1 text-sm leading-6 text-slate">
+              {intelligence.websitePresenceAssessment.weakestSignals.map((signal) => <li key={signal}>{signal}</li>)}
+            </ul>
+          </div>
+        </div>
+        {intelligence.websitePresenceAssessment.recommendations.length > 0 && (
+          <div className="mt-3">
+            <p className="text-sm font-bold">Website improvement recommendations</p>
+            <ul className="mt-1 grid gap-1 text-sm leading-6 text-slate">
+              {intelligence.websitePresenceAssessment.recommendations.map((recommendation) => <li key={recommendation}>{recommendation}</li>)}
+            </ul>
+          </div>
+        )}
+      </section>
+
+      <section className="rounded border border-line bg-white p-4">
+        <h3 className="text-lg font-bold">Public Reporting Sophistication</h3>
         <p className="mt-2 text-sm leading-6 text-slate">{intelligence.annualReportInsight.status}</p>
         {intelligence.annualReportInsight.score !== null && (
-          <p className="mt-2 text-sm font-bold">Annual Report Sophistication Score: {intelligence.annualReportInsight.score}/100</p>
+          <p className="mt-2 text-sm font-bold">Public Reporting Sophistication Score: {intelligence.annualReportInsight.score}/100</p>
         )}
         {intelligence.annualReportInsight.findings.length > 0 && (
           <ul className="mt-3 grid gap-2 text-sm leading-6 text-slate">
@@ -1587,8 +1669,13 @@ function OperationalIntelligenceView({
           <div className="mt-3 grid gap-2 text-sm leading-6 text-slate">
             <p><strong>Careers page found:</strong> {intelligence.workforceExtractionDebug.careersPageFound || "None"}</p>
             <p><strong>ATS platform detected:</strong> {intelligence.workforceExtractionDebug.atsPlatformDetected || "None"}</p>
+            <p><strong>Pages crawled:</strong> {intelligence.workforceExtractionDebug.pagesCrawled}</p>
             <p><strong>Postings extracted:</strong> {intelligence.workforceExtractionDebug.postingsExtracted}</p>
             <p><strong>Postings after deduplication:</strong> {intelligence.workforceExtractionDebug.postingsAfterDeduplication}</p>
+            <p><strong>JavaScript rendering required:</strong> {intelligence.workforceExtractionDebug.javascriptRenderingRequired ? "Possibly" : "No clear signal"}</p>
+            {intelligence.workforceExtractionDebug.extractionErrors.length > 0 && (
+              <p><strong>Extraction errors:</strong> {intelligence.workforceExtractionDebug.extractionErrors.join("; ")}</p>
+            )}
             <p><strong>Source URLs crawled:</strong></p>
             <ul className="grid gap-1">
               {intelligence.workforceExtractionDebug.sourceUrlsCrawled.map((url) => <li key={url}>{url}</li>)}
@@ -1667,9 +1754,11 @@ function labelForBand(value: string) {
   return "Unavailable";
 }
 
-function ExecutiveGaugeCard({ label, value, mode, detail }: { label: string; value: number; mode: "strain" | "health"; detail: string }) {
-  const clamped = Math.max(0, Math.min(100, value));
-  const angle = scoreToGaugeRotation(clamped);
+function ExecutiveGaugeCard({ label, value, mode, detail }: { label: string; value: number | null | undefined; mode: "strain" | "health"; detail: string }) {
+  const numericValue = Number(value);
+  const hasValue = value !== null && value !== undefined && !Number.isNaN(numericValue);
+  const clamped = hasValue ? Math.max(0, Math.min(100, numericValue)) : null;
+  const angle = scoreToGaugeRotation(value);
   const gradientId = `gauge-${label.replace(/\s+/g, "-").toLowerCase()}`;
 
   return (
@@ -1677,12 +1766,12 @@ function ExecutiveGaugeCard({ label, value, mode, detail }: { label: string; val
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate">{label}</p>
-          <p className="mt-1 text-3xl font-bold tabular-nums text-charcoal">{value}<span className="text-base text-slate">/100</span></p>
+          <p className="mt-1 text-3xl font-bold tabular-nums text-charcoal">{hasValue ? Math.round(clamped || 0) : "N/A"}{hasValue && <span className="text-base text-slate">/100</span>}</p>
         </div>
         <p className="max-w-40 text-right text-xs font-bold leading-5 text-fitgreen">{detail}</p>
       </div>
       <div className="mx-auto mt-3 w-full max-w-[260px]">
-        <svg viewBox="0 0 240 132" role="img" aria-label={`${label} ${value} out of 100`} className="h-auto w-full">
+        <svg viewBox="0 0 240 132" role="img" aria-label={hasValue ? `${label} ${clamped} out of 100` : `${label} not available`} className={`h-auto w-full ${hasValue ? "" : "opacity-50"}`}>
           <defs>
             <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="0%">
               {mode === "strain" ? (
@@ -1701,19 +1790,15 @@ function ExecutiveGaugeCard({ label, value, mode, detail }: { label: string; val
             </linearGradient>
           </defs>
           <path d="M28 112 A92 92 0 0 1 212 112" fill="none" stroke={`url(#${gradientId})`} strokeWidth="18" strokeLinecap="round" />
-          <line x1="120" y1="112" x2={120 + Math.cos((angle * Math.PI) / 180) * 72} y2={112 + Math.sin((angle * Math.PI) / 180) * 72} stroke="#111" strokeWidth="5" strokeLinecap="round" />
-          <circle cx="120" cy="112" r="7" fill="#111" />
+          {angle !== null && <line x1="120" y1="112" x2="120" y2="40" stroke="#111" strokeWidth="5" strokeLinecap="round" transform={`rotate(${angle} 120 112)`} />}
+          <circle cx="120" cy="112" r="7" fill={angle === null ? "#9ca3af" : "#111"} />
           <text x="28" y="128" fontSize="11" fontWeight="700" fill="#596057">0</text>
+          <text x="113" y="28" fontSize="11" fontWeight="700" fill="#596057">50</text>
           <text x="202" y="128" fontSize="11" fontWeight="700" fill="#596057">100</text>
         </svg>
       </div>
     </div>
   );
-}
-
-function scoreToGaugeRotation(score: number) {
-  const clamped = Math.max(0, Math.min(100, score));
-  return -90 + (clamped / 100) * 180;
 }
 
 function RevenueExpenseTrendChart({ points }: { points: NonNullable<GeneratedExecutiveReport["operationalIntelligence"]>["financialTrend"] }) {

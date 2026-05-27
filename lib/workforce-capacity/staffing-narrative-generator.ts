@@ -40,8 +40,10 @@ function pressureAreas(metrics: StaffingMetrics, roles: CareersRole[]) {
 }
 
 function hiringBottleneckAnalysis(metrics: StaffingMetrics, workforceSize: WorkforceSizeEstimate, riskScore: StaffingRiskScore) {
-  const age = metrics.averageRequisitionAgeDays === null ? "Public posting age was not consistently available." : `Average visible requisition age is approximately ${metrics.averageRequisitionAgeDays} days.`;
-  const ratio = metrics.openRoleRatio === null ? "Open-role ratio could not be calculated because no reliable public employee-count estimate was available." : `Open-role ratio is approximately ${Math.round(metrics.openRoleRatio * 100)}% of estimated workforce size.`;
+  const age = metrics.averageRequisitionAgeDays === null
+    ? "Many public hiring systems do not expose the original posting date. FitProof can begin tracking first-seen dates from this scan forward, which allows requisition aging and hiring velocity to become more accurate over time."
+    : `Average requisition age is approximately ${metrics.averageRequisitionAgeDays} days, based on posted dates where available and first-seen tracking where needed.`;
+  const ratio = metrics.openRoleRatio === null ? "Headcount unavailable from reliable public sources, so open-role ratio is not calculated." : `Open-role ratio is approximately ${Math.round(metrics.openRoleRatio * 100)}% of estimated workforce size.`;
   return `${age} ${ratio} Overall, the hiring signal is ${riskScore.level}; extended vacancy duration may indicate recruiting challenges, but this should be validated with internal vacancy and time-to-fill data. ${workforceSize.notes.join(" ")}`;
 }
 

@@ -161,6 +161,40 @@ export type AnnualReportAnalysis = {
   notes: string[];
 };
 
+export type WebsiteSophisticationScore = {
+  totalScore: number;
+  categories: {
+    missionClarity: number;
+    donationPathwayClarity: number;
+    volunteerPathwayClarity: number;
+    programServiceClarity: number;
+    impactEvidence: number;
+    financialTransparencySignals: number;
+    leadershipBoardVisibility: number;
+    callsToActionQuality: number;
+    mobileUsabilityAccessibilitySignals: number;
+  };
+  strongestSignals: string[];
+  weakestSignals: string[];
+  recommendations: string[];
+  confidence: ConfidenceLevel;
+};
+
+export type WebsiteSophisticationAnalysis = {
+  score: WebsiteSophisticationScore | null;
+  primaryCallsToAction: string[];
+  donateButtonPresence: "prominent" | "present" | "not_detected";
+  volunteerCtaPresence: "present" | "not_detected";
+  programDescriptions: string[];
+  impactMetrics: string[];
+  annualReportLinks: string[];
+  financialLinks: string[];
+  leadershipBoardPages: string[];
+  accessibilityIssues: string[];
+  confusingOrMissingPathways: string[];
+  notes: string[];
+};
+
 export type AuditExtraction = {
   sourceDocument: SourceDocument;
   fields: Record<
@@ -232,6 +266,7 @@ export type EnhancedAnalysisResult = {
   organization: Organization;
   sources: SourceDocument[];
   websiteAnalysis: WebsiteAnalysis;
+  websiteSophistication: WebsiteSophisticationAnalysis;
   annualReportAnalysis: AnnualReportAnalysis;
   registryResults: RegistrySearchResult[];
   publicRecords: PublicRecordSignal[];

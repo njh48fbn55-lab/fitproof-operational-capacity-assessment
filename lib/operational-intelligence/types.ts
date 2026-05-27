@@ -91,6 +91,11 @@ export type WorkforceExtractionDebug = {
   postingsExtracted: number;
   postingsAfterDeduplication: number;
   sourceUrlsCrawled: string[];
+  pagesCrawled: number;
+  rawJobCount: number;
+  deduplicatedJobCount: number;
+  extractionErrors: string[];
+  javascriptRenderingRequired: boolean;
 };
 
 export type OperationalIntelligenceReport = {
@@ -113,6 +118,14 @@ export type OperationalIntelligenceReport = {
     score: number | null;
     findings: string[];
     sourceUrl: string | null;
+  };
+  websitePresenceAssessment: {
+    status: string;
+    score: number | null;
+    strongestSignals: string[];
+    weakestSignals: string[];
+    impact: string;
+    recommendations: string[];
   };
   dataQualityNotes: string[];
 };

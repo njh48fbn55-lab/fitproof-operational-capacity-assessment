@@ -1,5 +1,7 @@
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import path from "node:path";
 import { SourceDocument } from "@/lib/nonprofit-viability/types";
-import { fetchTextPage, makeId, normalizeUrl, nowIso, textFromHtml } from "@/lib/nonprofit-viability/utils";
+import { fetchTextPage, localDataDir, makeId, normalizeUrl, nowIso, slugify, textFromHtml } from "@/lib/nonprofit-viability/utils";
 import { CareersCrawlResult, CareersPlatform, CareersRole, LeadershipLevel } from "./types";
 
 const careerLinkPattern = /(career|careers|jobs|join|employment|work-with-us|work_with_us|open-position|opportunit|greenhouse|lever|workday|bamboohr|jazzhr|paylocity|adp|icims)/i;
@@ -22,12 +24,17 @@ export async function careersCrawlerService({
   const roles: CareersRole[] = [];
   const sources: SourceDocument[] = [];
   const searchedUrls: string[] = [];
+  const extractionErrors: string[] = [];
+  let javascriptRenderingRequired = false;
 
   for (const seed of seeds.slice(0, maxCareerPages)) {
     searchedUrls.push(seed);
     const platform = platformForUrl(seed);
 
-    const providerRoles = await fetchProviderRoles(seed, platform);
+    const providerRoles = await fetchProviderRoles(seed, platform).catch((error) => {
+      extractionErrors.push(`${platformLabel(platform)} extraction failed for ${seed}: ${error instanceof Error ? error.message : String(error)}`);
+      return [];
+    });
     if (providerRoles.length) {
       roles.push(...providerRoles);
       sources.push(sourceFor(seed, `${platformLabel(platform)} job board`, "high"));
@@ -40,10 +47,13 @@ export async function careersCrawlerService({
     sources.push(sourceFor(page.url, page.title, "medium", page.text.slice(0, 1200)));
     roles.push(...extractJsonLdRoles(page.html, page.url, platform));
     roles.push(...extractLinkedRoles(page.html, page.url, platform, organizationName || undefined));
+    if (platform !== "unknown" && !providerRoles.length && /script|__NEXT_DATA__|window\.__|app-root|data-reactroot/i.test(page.html)) {
+      javascriptRenderingRequired = true;
+    }
   }
 
   const activeRoles = roles.filter((item) => item.active);
-  const dedupedRoles = dedupeRoles(activeRoles);
+  const dedupedRoles = await applyRoleHistory(dedupeRoles(activeRoles), organizationName || rootUrl);
   if (!dedupedRoles.length) notes.push("No public open roles were found on reviewed careers pages or common hiring platforms.");
 
   return {
@@ -56,7 +66,12 @@ export async function careersCrawlerService({
       atsPlatformDetected: searchedUrls.map(platformForUrl).find((platform) => platform !== "unknown") || null,
       postingsExtracted: activeRoles.length,
       postingsAfterDeduplication: dedupedRoles.length,
-      sourceUrlsCrawled: [...new Set(searchedUrls)]
+      sourceUrlsCrawled: [...new Set(searchedUrls)],
+      pagesCrawled: searchedUrls.length,
+      rawJobCount: activeRoles.length,
+      deduplicatedJobCount: dedupedRoles.length,
+      extractionErrors,
+      javascriptRenderingRequired
     }
   };
 }
@@ -289,6 +304,7 @@ async function fetchJson<T>(url: string): Promise<T | null> {
 
 function role(input: Pick<CareersRole, "title" | "requisitionUrl" | "platform" | "confidence"> & Partial<Pick<CareersRole, "department" | "location" | "requisitionId" | "postedDate" | "updatedDate" | "employmentType" | "active">>): CareersRole {
   const seenAt = nowIso();
+  const active = input.active ?? true;
   return {
     id: makeId("role", `${input.title}-${input.requisitionUrl}`),
     title: cleanTitle(input.title),
@@ -299,13 +315,18 @@ function role(input: Pick<CareersRole, "title" | "requisitionUrl" | "platform" |
     updatedDate: input.updatedDate || null,
     firstSeenAt: seenAt,
     lastSeenAt: seenAt,
+    closedAt: active ? null : seenAt,
     employmentType: input.employmentType || null,
     leadershipLevel: inferLeadershipLevel(input.title),
     requisitionUrl: input.requisitionUrl,
+    jobUrl: input.requisitionUrl,
     platform: input.platform,
+    sourcePlatform: input.platform,
     sourceName: platformLabel(input.platform),
     confidence: input.confidence,
-    active: input.active ?? true
+    extractionConfidence: input.confidence,
+    active,
+    status: active ? "open" : "closed"
   };
 }
 
@@ -385,8 +406,63 @@ function emptyDebug(sourceUrlsCrawled: string[]) {
     atsPlatformDetected: null,
     postingsExtracted: 0,
     postingsAfterDeduplication: 0,
-    sourceUrlsCrawled
+    sourceUrlsCrawled,
+    pagesCrawled: sourceUrlsCrawled.length,
+    rawJobCount: 0,
+    deduplicatedJobCount: 0,
+    extractionErrors: [],
+    javascriptRenderingRequired: false
   };
+}
+
+async function applyRoleHistory(roles: CareersRole[], organizationKey: string) {
+  const filePath = path.join(localDataDir(), "workforce-history", `${slugify(organizationKey)}.json`);
+  const previous = await readRoleHistory(filePath);
+  const now = nowIso();
+  const next: Record<string, { firstSeenAt: string; lastSeenAt: string; closedAt: string | null }> = { ...previous };
+
+  const hydrated = roles.map((roleItem) => {
+    const key = stableRoleKey(roleItem);
+    const history = previous[key];
+    next[key] = {
+      firstSeenAt: history?.firstSeenAt || roleItem.firstSeenAt || now,
+      lastSeenAt: now,
+      closedAt: null
+    };
+    return {
+      ...roleItem,
+      firstSeenAt: history?.firstSeenAt || roleItem.firstSeenAt,
+      lastSeenAt: now,
+      closedAt: null,
+      status: "open" as const,
+      active: true
+    };
+  });
+
+  for (const [key, history] of Object.entries(previous)) {
+    if (!next[key] || roles.some((roleItem) => stableRoleKey(roleItem) === key)) continue;
+    next[key] = { ...history, closedAt: history.closedAt || now, lastSeenAt: now };
+  }
+
+  await writeRoleHistory(filePath, next).catch(() => undefined);
+  return hydrated;
+}
+
+async function readRoleHistory(filePath: string): Promise<Record<string, { firstSeenAt: string; lastSeenAt: string; closedAt: string | null }>> {
+  try {
+    return JSON.parse(await readFile(filePath, "utf8"));
+  } catch {
+    return {};
+  }
+}
+
+async function writeRoleHistory(filePath: string, data: Record<string, { firstSeenAt: string; lastSeenAt: string; closedAt: string | null }>) {
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(filePath, JSON.stringify(data, null, 2), "utf8");
+}
+
+function stableRoleKey(roleItem: CareersRole) {
+  return (roleItem.requisitionId || `${roleItem.title}|${roleItem.location || ""}|${roleItem.requisitionUrl}`).toLowerCase();
 }
 
 function jsonObjectMatches(html: string) {

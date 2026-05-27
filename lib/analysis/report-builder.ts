@@ -75,8 +75,10 @@ function financialNarrative(enhancedAnalysis: EnhancedAnalysisResult) {
 
 function staffingNarrative(workforceCapacityAnalysis: WorkforceCapacityAnalysis) {
   const metrics = workforceCapacityAnalysis.metrics;
-  const ratio = metrics.openRoleRatio === null ? "open-role ratio unavailable" : `open-role ratio approximately ${Math.round(metrics.openRoleRatio * 100)}%`;
-  const age = metrics.averageRequisitionAgeDays === null ? "posting age unavailable" : `average visible requisition age approximately ${metrics.averageRequisitionAgeDays} days`;
+  const ratio = metrics.openRoleRatio === null ? "headcount unavailable from reliable public sources, so open-role ratio is not calculated" : `open-role ratio approximately ${Math.round(metrics.openRoleRatio * 100)}%`;
+  const age = metrics.averageRequisitionAgeDays === null
+    ? "requisition age tracking will improve after repeated scans"
+    : `average requisition age approximately ${metrics.averageRequisitionAgeDays} days`;
   return `${workforceCapacityAnalysis.narrative.staffingCapacitySummary} Public hiring review found ${metrics.totalOpenPositions} open role(s), ${metrics.leadershipOpenings} senior/leadership opening(s), ${ratio}, and ${age}. These are signals of possible staffing capacity pressure, not proof of turnover, burnout, or employee sentiment.`;
 }
 

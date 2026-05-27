@@ -5,8 +5,11 @@ import test from "node:test";
 const page = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
 const synthesis = readFileSync(new URL("../lib/operational-intelligence/report-synthesis-service.ts", import.meta.url), "utf8");
 const crawler = readFileSync(new URL("../lib/workforce-capacity/careers-crawler-service.ts", import.meta.url), "utf8");
+const staffingMetrics = readFileSync(new URL("../lib/workforce-capacity/staffing-metrics-service.ts", import.meta.url), "utf8");
 const capacity = readFileSync(new URL("../lib/operational-capacity.ts", import.meta.url), "utf8");
 const annualReport = readFileSync(new URL("../lib/nonprofit-viability/annual-report-service.ts", import.meta.url), "utf8");
+const websiteSophistication = readFileSync(new URL("../lib/nonprofit-viability/website-sophistication-service.ts", import.meta.url), "utf8");
+const gauge = readFileSync(new URL("../lib/report-gauge.ts", import.meta.url), "utf8");
 
 test("report no longer renders the legacy duplicate executive summary block for intelligence reports", () => {
   assert.equal(page.includes("<h2>Executive Summary</h2>\\n          <p>${escapeHtml(summary)}</p>"), false);
@@ -14,9 +17,24 @@ test("report no longer renders the legacy duplicate executive summary block for 
 });
 
 test("gauge rotation uses the actual score value", () => {
-  assert.match(page, /function scoreToGaugeRotation\(score: number\)/);
-  assert.match(page, /return -90 \+ \(clamped \/ 100\) \* 180;/);
+  assert.match(gauge, /function scoreToGaugeRotation/);
+  assert.match(gauge, /return -90 \+ \(clamped \/ 100\) \* 180;/);
   assert.equal(page.includes("100 - clamped"), false);
+});
+
+test("gauge rotation math clamps scores and handles missing values", () => {
+  const scoreToGaugeRotation = (score) => {
+    if (score === null || score === undefined || Number.isNaN(Number(score))) return null;
+    const clamped = Math.max(0, Math.min(100, Number(score)));
+    return -90 + (clamped / 100) * 180;
+  };
+  assert.equal(scoreToGaugeRotation(0), -90);
+  assert.equal(scoreToGaugeRotation(50), 0);
+  assert.equal(scoreToGaugeRotation(100), 90);
+  assert.equal(Math.round(scoreToGaugeRotation(52) * 10) / 10, 3.6);
+  assert.equal(scoreToGaugeRotation(125), 90);
+  assert.equal(scoreToGaugeRotation(undefined), null);
+  assert.match(page, /transform={`rotate\(\$\{angle\} 120 112\)`}/);
 });
 
 test("raw growth-constraint labels are not emitted as recommendations", () => {
@@ -75,4 +93,51 @@ test("annual report service scans public website reports and reports not found c
   assert.match(annualReport, /annual report not found from public website scan/);
   assert.match(annualReport, /AnnualReportSophisticationScore/);
   assert.match(synthesis, /annualReportInsight/);
+});
+
+test("Q4 and Q25 show select all language and Q27 demand wording is updated", () => {
+  assert.match(capacity, /Which major operational workflows create the most friction for your team\? Select all that apply\./);
+  assert.match(capacity, /What makes board reporting difficult\? Select all that apply\./);
+  assert.match(capacity, /How has demand for your services changed over the past 12 months\?/);
+  assert.match(capacity, /Increased somewhat/);
+  assert.match(capacity, /Stayed about the same/);
+});
+
+test("help text is question-specific and not reused across every question", () => {
+  const helpEntries = [...capacity.matchAll(/"([^"]+)": "([^"]+)"/g)].filter(([, key]) => key.includes("-"));
+  const helpValues = helpEntries.map(([, , value]) => value);
+  assert.ok(helpValues.length >= 25);
+  assert.ok(new Set(helpValues).size >= 25);
+});
+
+test("branded loading screen copy appears during analysis", () => {
+  assert.match(page, /Building your operational intelligence report/);
+  assert.match(page, /FitProof is gathering public financial, workforce, website, and assessment signals/);
+  assert.match(page, /Reviewing assessment responses/);
+});
+
+test("website sophistication score is generated when website content exists", () => {
+  assert.match(websiteSophistication, /WebsiteSophisticationAnalysis/);
+  assert.match(websiteSophistication, /donationPathwayClarity/);
+  assert.match(synthesis, /websitePresenceAssessment/);
+});
+
+test("public reporting sophistication score is generated when reports are found", () => {
+  assert.match(annualReport, /scoreAnnualReport/);
+  assert.match(page, /Public Reporting Sophistication Score/);
+  assert.match(synthesis, /Public Reporting Sophistication Score/);
+});
+
+test("requisition age uses postedDate, then firstSeenAt, and stays unavailable without dates", () => {
+  assert.match(staffingMetrics, /const raw = role\.postedDate \|\| role\.firstSeenAt/);
+  assert.equal(staffingMetrics.includes("updatedDate || role.firstSeenAt"), false);
+  assert.match(staffingMetrics, /if \(!raw\) return null/);
+});
+
+test("PDF uses the same rendered gauge component and export labels are simplified", () => {
+  assert.match(page, /reportElement\.outerHTML/);
+  assert.match(page, /Download PDF/);
+  assert.match(page, /Download Word Document/);
+  assert.equal(page.includes("Download Branded PDF"), false);
+  assert.equal(page.includes("Download Branded Word Document"), false);
 });

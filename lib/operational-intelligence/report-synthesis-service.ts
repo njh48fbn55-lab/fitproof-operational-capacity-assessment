@@ -65,6 +65,7 @@ export function reportSynthesisService({
     supportingMetrics: supportingMetrics(enhancedAnalysis, workforceCapacityAnalysis, responses),
     workforceExtractionDebug: workforceCapacityAnalysis?.careers.debug || null,
     annualReportInsight: annualReportInsight(enhancedAnalysis),
+    websitePresenceAssessment: websitePresenceAssessment(enhancedAnalysis),
     dataQualityNotes: dataQualityNotes(enhancedAnalysis, workforceCapacityAnalysis)
   };
 }
@@ -154,7 +155,8 @@ function supportingMetrics(enhancedAnalysis: EnhancedAnalysisResult | null, work
     systemSummary ? { label: "Core system map", value: systemSummary, source: "Assessment response" } : null,
     workflowFriction ? { label: "Major workflow friction", value: workflowFriction, source: "Assessment response" } : null,
     openConstraint ? { label: "Stated operating context", value: openConstraint, source: "Assessment response" } : null,
-    enhancedAnalysis?.annualReportAnalysis.score ? { label: "Annual Report Sophistication Score", value: `${enhancedAnalysis.annualReportAnalysis.score.totalScore}/100`, source: enhancedAnalysis.annualReportAnalysis.sourceDocument?.url || "Annual report scan" } : null
+    enhancedAnalysis?.websiteSophistication.score ? { label: "Website Sophistication Score", value: `${enhancedAnalysis.websiteSophistication.score.totalScore}/100`, source: "Website scan" } : null,
+    enhancedAnalysis?.annualReportAnalysis.score ? { label: "Public Reporting Sophistication Score", value: `${enhancedAnalysis.annualReportAnalysis.score.totalScore}/100`, source: enhancedAnalysis.annualReportAnalysis.sourceDocument?.url || "Annual or impact report scan" } : null
   ].filter((item): item is SupportingMetric => Boolean(item));
 }
 
@@ -351,7 +353,7 @@ function dataQualityNotes(enhancedAnalysis: EnhancedAnalysisResult | null, workf
   if (!hasReliableMetric(latest, "monthsCashOnHand")) notes.push("Months cash on hand was excluded from the main report because cash and average monthly expense data were not available with medium/high confidence.");
   if (!hasReliableMetric(latest, "currentRatio")) notes.push("Current ratio was excluded from the main report because current assets and current liabilities were not available with medium/high confidence.");
   if (!workforceCapacityAnalysis?.workforceSize.estimatedEmployeeCount || workforceCapacityAnalysis.workforceSize.confidence === "low") notes.push("Employee count unavailable from reliable public sources; open position ratio was not calculated.");
-  if (workforceCapacityAnalysis && workforceCapacityAnalysis.metrics.averageRequisitionAgeDays === null) notes.push("Job age unavailable because public posting dates were not available from the reviewed hiring sources.");
+  if (workforceCapacityAnalysis && workforceCapacityAnalysis.metrics.averageRequisitionAgeDays === null) notes.push("Many public hiring systems do not expose the original posting date. FitProof can begin tracking first-seen dates from this scan forward, which allows requisition aging and hiring velocity to become more accurate over time.");
   if (!enhancedAnalysis?.annualReportAnalysis.sourceDocument) notes.push("annual report not found from public website scan.");
   return notes;
 }
@@ -372,6 +374,30 @@ function annualReportInsight(enhancedAnalysis: EnhancedAnalysisResult | null) {
     score: analysis.score.totalScore,
     findings: analysis.score.findings,
     sourceUrl: analysis.sourceDocument.url || null
+  };
+}
+
+function websitePresenceAssessment(enhancedAnalysis: EnhancedAnalysisResult | null) {
+  const analysis = enhancedAnalysis?.websiteSophistication;
+  if (!analysis?.score) {
+    return {
+      status: "Website content was unavailable or could not be analyzed.",
+      score: null,
+      strongestSignals: [],
+      weakestSignals: [],
+      impact: "Website and public presence impact could not be assessed from available public content.",
+      recommendations: []
+    };
+  }
+
+  const weak = analysis.score.weakestSignals.join(", ").toLowerCase();
+  return {
+    status: "Website reviewed against nonprofit fundraising, volunteer, referral, trust, transparency, and credibility objectives.",
+    score: analysis.score.totalScore,
+    strongestSignals: analysis.score.strongestSignals,
+    weakestSignals: analysis.score.weakestSignals,
+    impact: `The website's clearest public-presence constraints appear in ${weak || "the lower-scoring pathway areas"}, which may affect donor trust, volunteer conversion, referral clarity, or board/funder confidence.`,
+    recommendations: analysis.score.recommendations
   };
 }
 
