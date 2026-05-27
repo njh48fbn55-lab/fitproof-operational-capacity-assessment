@@ -208,6 +208,17 @@ function fallbackReport(profile: Profile, responses: Responses, result: Assessme
   };
 }
 
+function userFacingReportError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/OPENAI_API_KEY/i.test(message)) return "AI report generation skipped because OPENAI_API_KEY is not configured on the server.";
+  if (/status 401/i.test(message)) return "AI report generation failed because the OpenAI API key was rejected. Check the Droplet .env.local key.";
+  if (/status 429/i.test(message)) return "AI report generation failed because the OpenAI account is rate-limited or out of available quota.";
+  if (/status 400/i.test(message)) return `AI report generation failed because OpenAI rejected the request: ${message.slice(0, 500)}`;
+  if (/JSON/i.test(message)) return "AI report generation returned an invalid report format after retry. The deterministic report is shown instead.";
+  if (/fetch failed|aborted|timeout|ETIMEDOUT|ECONNRESET/i.test(message)) return "AI report generation failed because the server could not reach OpenAI reliably.";
+  return `AI report generation failed after retry: ${message.slice(0, 500)}`;
+}
+
 function responseSummary(responses: Responses) {
   const questionById = new Map(questions.map((question) => [question.id, question.prompt]));
 
@@ -619,7 +630,7 @@ function inferRevenueSourceSignals(enhancedAnalysis: EnhancedAnalysisResult) {
 
 async function generateWithOpenAI(profile: Profile, responses: Responses, result: AssessmentResult, sources: SourcePage[], enhancedAnalysis: EnhancedAnalysisResult | null) {
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
+  if (!apiKey) throw new Error("OPENAI_API_KEY is not configured.");
   const webSearchEnabled = process.env.OPENAI_WEB_SEARCH_ENABLED !== "false";
 
   const reportSchema = {
@@ -844,7 +855,7 @@ export async function POST(request: Request) {
     return NextResponse.json(fallback);
   } catch (error) {
     console.error("AI report generation failed", error);
-    const fallback = fallbackReport(payload.profile, payload.responses, payload.result, sources, "AI report generation failed, so the deterministic executive report is shown instead.");
+    const fallback = fallbackReport(payload.profile, payload.responses, payload.result, sources, userFacingReportError(error));
     await retainAndNotifySubmission(payload, fallback, sources, enhancedAnalysis);
     return NextResponse.json(fallback);
   }
