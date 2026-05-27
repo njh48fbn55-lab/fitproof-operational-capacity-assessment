@@ -65,12 +65,14 @@ function Field({
   label,
   value,
   onChange,
-  type = "text"
+  type = "text",
+  invalid = false
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   type?: "text" | "email";
+  invalid?: boolean;
 }) {
   return (
     <label className="grid gap-1.5">
@@ -79,8 +81,12 @@ function Field({
         type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="min-h-11 rounded border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition focus:border-fitgreen focus:ring-4 focus:ring-fitgreen/20"
+        aria-invalid={invalid}
+        className={`min-h-11 rounded border bg-white px-3 py-2 text-sm text-ink outline-none transition focus:ring-4 ${
+          invalid ? "border-red-400 focus:border-red-500 focus:ring-red-100" : "border-line focus:border-fitgreen focus:ring-fitgreen/20"
+        }`}
       />
+      {invalid && <span className="text-xs font-bold uppercase tracking-[0.12em] text-red-700">Required</span>}
     </label>
   );
 }
@@ -145,13 +151,6 @@ export default function Home() {
     setReportError("");
 
     try {
-      await fetch("/api/lead", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lead, profile, result })
-      });
-      setLeadSaved(true);
-
       const response = await fetch("/api/generate-report", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -164,6 +163,7 @@ export default function Home() {
 
       const data = (await response.json()) as GeneratedExecutiveReport;
       setGeneratedReport(data);
+      setLeadSaved(true);
     } catch (error) {
       console.error(error);
       setReportError("The AI report could not be generated, so the deterministic executive report is shown instead.");
@@ -174,12 +174,16 @@ export default function Home() {
 
   const section = domains[currentStep];
   const sectionQuestions = questions.filter((question) => question.domainId === section.id);
-  const sectionComplete = sectionQuestions.every((question) => hasAnswer(question, responses));
-  const missingInSection = sectionQuestions.filter((question) => !hasAnswer(question, responses)).length;
+  const profileComplete = profile.organization.trim().length > 0 && profile.websiteUrl.trim().length > 0;
+  const sectionQuestionComplete = sectionQuestions.every((question) => hasAnswer(question, responses));
+  const sectionComplete = sectionQuestionComplete && (currentStep !== 0 || profileComplete);
+  const missingProfileFields = currentStep === 0 ? Number(!profile.organization.trim()) + Number(!profile.websiteUrl.trim()) : 0;
+  const missingInSection = sectionQuestions.filter((question) => !hasAnswer(question, responses)).length + missingProfileFields;
 
   function isSectionComplete(sectionIndex: number) {
     const targetSection = domains[sectionIndex];
-    return questions.filter((question) => question.domainId === targetSection.id).every((question) => hasAnswer(question, responses));
+    const targetSectionComplete = questions.filter((question) => question.domainId === targetSection.id).every((question) => hasAnswer(question, responses));
+    return targetSectionComplete && (sectionIndex !== 0 || profileComplete);
   }
 
   function goToSection(sectionIndex: number) {
@@ -255,10 +259,33 @@ export default function Home() {
         {view === "assessment" && (
           <div className="grid gap-5">
             <section className="rounded border border-line bg-white p-4 shadow-soft sm:p-5">
-              <div className="grid gap-3 md:grid-cols-2">
-                <Field label="Organization" value={profile.organization} onChange={(value) => setProfile({ ...profile, organization: value })} />
-                <Field label="Organization website" value={profile.websiteUrl} onChange={(value) => setProfile({ ...profile, websiteUrl: value })} />
-              </div>
+              {currentStep === 0 ? (
+                <div className="grid gap-3 md:grid-cols-2">
+                  <Field
+                    label="Organization"
+                    value={profile.organization}
+                    invalid={showSectionValidation && !profile.organization.trim()}
+                    onChange={(value) => setProfile({ ...profile, organization: value })}
+                  />
+                  <Field
+                    label="Organization website"
+                    value={profile.websiteUrl}
+                    invalid={showSectionValidation && !profile.websiteUrl.trim()}
+                    onChange={(value) => setProfile({ ...profile, websiteUrl: value })}
+                  />
+                </div>
+              ) : (
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate">Organization</p>
+                    <p className="mt-1 min-h-11 rounded border border-line bg-panel px-3 py-2 text-sm font-semibold text-ink">{profile.organization}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate">Organization website</p>
+                    <p className="mt-1 min-h-11 rounded border border-line bg-panel px-3 py-2 text-sm font-semibold text-ink">{profile.websiteUrl}</p>
+                  </div>
+                </div>
+              )}
             </section>
 
             <div className="grid gap-5 lg:grid-cols-[245px_minmax(0,1fr)]">
@@ -285,7 +312,7 @@ export default function Home() {
                   <p className="text-xs font-bold uppercase tracking-[0.16em] text-fitgreen">Section weight {section.weight}%</p>
                   <h2 className="mt-1 text-xl font-bold tracking-tight">{section.title}</h2>
                   <p className="mt-1 text-sm leading-6 text-slate">{section.purpose}</p>
-                  {!sectionComplete && (
+                  {showSectionValidation && !sectionComplete && (
                     <p className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
                       Please answer all questions in this section to continue. {missingInSection} remaining. "Select a response" does not count as an answer.
                     </p>
@@ -398,8 +425,7 @@ export default function Home() {
                   <button
                     type="button"
                     onClick={goForward}
-                    disabled={!sectionComplete}
-                    className="min-h-11 rounded bg-fitgreen px-4 text-sm font-bold text-blacktop transition hover:bg-blacktop hover:text-fitgreen disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate"
+                    className="min-h-11 rounded bg-fitgreen px-4 text-sm font-bold text-blacktop transition hover:bg-blacktop hover:text-fitgreen"
                   >
                     {currentStep === domains.length - 1 ? "Continue to findings and report" : "Next section"}
                   </button>

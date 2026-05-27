@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 import {
   AssessmentResult,
   GeneratedExecutiveReport,
+  Lead,
+  domains,
   generateExecutiveSummary,
   generateRisks,
   getOpenConstraint,
@@ -17,6 +21,25 @@ type SourcePage = {
   text: string;
   html: string;
 };
+
+type CompletionPayload = {
+  lead?: Lead & {
+    name?: string;
+    title?: string;
+  };
+  profile: Profile;
+  responses: Responses;
+  result: AssessmentResult;
+};
+
+function escapeHtml(value: string | number | undefined | null) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
 
 function normalizeUrl(input: string) {
   if (!input.trim()) return "";
@@ -184,6 +207,230 @@ function responseSummary(responses: Responses) {
     .join("\n");
 }
 
+function slugify(value: string) {
+  return (value || "organization")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
+    .slice(0, 80) || "organization";
+}
+
+function safeTimestamp(date: Date) {
+  return date.toISOString().replace(/[:.]/g, "-");
+}
+
+function answerRecords(responses: Responses) {
+  const domainById = new Map(domains.map((domain) => [domain.id, domain]));
+
+  return questions.map((question) => ({
+    questionId: question.id,
+    question: question.prompt,
+    sectionId: question.domainId,
+    section: domainById.get(question.domainId)?.title || question.domainId,
+    answer: responses[question.id] ?? null
+  }));
+}
+
+function categoryStrainScores(result: AssessmentResult) {
+  return result.domainScores.map((domain) => ({
+    sectionId: domain.id,
+    section: domain.title,
+    shortTitle: domain.shortTitle,
+    weight: domain.weight,
+    strainScore: domain.risk,
+    weightedStrain: domain.weightedRisk,
+    answered: domain.answered
+  }));
+}
+
+function reportToText(report: GeneratedExecutiveReport, result: AssessmentResult) {
+  const engagement = report.recommendedEngagement;
+  const primaryDrivers = report.primaryStrainDrivers?.length
+    ? report.primaryStrainDrivers
+        .map(
+          (driver) =>
+            `${driver.category}\nWhat the strain appears to be: ${driver.strain}\nEvidence: ${driver.evidence}\nWhy it matters: ${driver.whyItMatters}\nIf not addressed: ${driver.consequence}`
+        )
+        .join("\n\n")
+    : report.topRisks.join("\n");
+
+  return [
+    "Executive Summary",
+    report.executiveSummary,
+    "",
+    "Organization Snapshot",
+    report.organizationSnapshot,
+    "",
+    "Spiral Stage Diagnosis",
+    report.strainDiagnosis,
+    "",
+    `Overall Strain Score: ${result.riskScore}/100`,
+    `Spiral Stage: Stage ${result.stage.number} - ${result.stage.name}`,
+    "",
+    "Primary Strain Drivers",
+    primaryDrivers,
+    "",
+    "Implications for the Organization",
+    report.missionImplications,
+    "",
+    "Recommended FitProof Engagement",
+    `Recommended Offering: ${engagement?.recommendedOffering || report.fitProofEngagement}`,
+    engagement ? `Why This Offering Fits: ${engagement.whyThisOfferingFits}` : "",
+    engagement ? `Primary Objectives:\n${engagement.primaryObjectives.join("\n")}` : "",
+    engagement ? `Initial Workplan:\n${engagement.initialWorkplan.join("\n")}` : "",
+    engagement ? `Expected Outcomes:\n${engagement.expectedOutcomes.join("\n")}` : "",
+    engagement ? `Suggested Timeline: ${engagement.suggestedTimeline}` : "",
+    engagement ? `Why Now: ${engagement.whyNow}` : "",
+    "",
+    "Next 30-60 Days",
+    (report.nextSteps || report.recommendations).join("\n"),
+    "",
+    "Public Signals Reviewed",
+    report.publicSignals.join("\n"),
+    "",
+    "Sources",
+    report.sources.map((source) => `${source.title}: ${source.url}`).join("\n")
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildSubmission(payload: CompletionPayload, report: GeneratedExecutiveReport, sources: SourcePage[], timestamp: Date) {
+  const respondent = {
+    name: payload.lead?.name || null,
+    email: payload.lead?.email || null,
+    title: payload.lead?.title || null
+  };
+
+  return {
+    submissionTimestamp: timestamp.toISOString(),
+    organization: {
+      name: payload.profile.organization,
+      website: payload.profile.websiteUrl
+    },
+    respondent,
+    answers: answerRecords(payload.responses),
+    rawResponses: payload.responses,
+    overallStrainScore: payload.result.riskScore,
+    spiralStage: {
+      number: payload.result.stage.number,
+      name: payload.result.stage.name,
+      interpretation: payload.result.stage.interpretation
+    },
+    categoryStrainScores: categoryStrainScores(payload.result),
+    topStrainDrivers: payload.result.topRiskDomains.map((domain) => ({
+      section: domain.title,
+      strainScore: domain.risk
+    })),
+    generatedReport: report,
+    generatedReportText: reportToText(report, payload.result),
+    recommendedFitProofEngagement: report.recommendedEngagement?.recommendedOffering || report.fitProofEngagement,
+    companyResearchEnrichmentData: {
+      publicSignals: report.publicSignals,
+      sources: sources.map((source) => ({
+        title: source.title,
+        url: source.url,
+        textExcerpt: source.text
+      }))
+    }
+  };
+}
+
+async function saveSubmission(submission: ReturnType<typeof buildSubmission>, organization: string, timestamp: Date) {
+  const submissionsDir = process.env.ASSESSMENT_SUBMISSIONS_DIR || path.join(process.cwd(), "submissions");
+  await mkdir(submissionsDir, { recursive: true });
+  const filename = `assessment-${slugify(organization)}-${safeTimestamp(timestamp)}.json`;
+  const filePath = path.join(submissionsDir, filename);
+  await writeFile(filePath, JSON.stringify(submission, null, 2), "utf8");
+  return filePath;
+}
+
+function buildEmailText(submission: ReturnType<typeof buildSubmission>) {
+  return [
+    `New FitProof Assessment Completed: ${submission.organization.name || "Organization"}`,
+    "",
+    `Organization: ${submission.organization.name || "Not provided"}`,
+    `Website: ${submission.organization.website || "Not provided"}`,
+    `Respondent name: ${submission.respondent.name || "Not collected"}`,
+    `Respondent title: ${submission.respondent.title || "Not collected"}`,
+    `Respondent email: ${submission.respondent.email || "Not collected"}`,
+    "",
+    `Overall strain score: ${submission.overallStrainScore}/100`,
+    `Spiral stage: Stage ${submission.spiralStage.number} - ${submission.spiralStage.name}`,
+    `Recommended FitProof engagement: ${submission.recommendedFitProofEngagement}`,
+    "",
+    "Top strain drivers:",
+    submission.topStrainDrivers.map((driver) => `- ${driver.section}: ${driver.strainScore}/100`).join("\n"),
+    "",
+    "Full generated assessment/report:",
+    submission.generatedReportText,
+    "",
+    "All raw answers:",
+    submission.answers.map((answer) => `- ${answer.question}: ${Array.isArray(answer.answer) ? answer.answer.join(", ") : answer.answer ?? "No answer"}`).join("\n"),
+    "",
+    "Company research/enrichment data used:",
+    submission.companyResearchEnrichmentData.sources.map((source) => `- ${source.title}: ${source.url}`).join("\n") || "No public sources collected."
+  ].join("\n");
+}
+
+function escapeHtmlEmail(value: string) {
+  return escapeHtml(value).replace(/\n/g, "<br />");
+}
+
+async function sendSubmissionEmail(submission: ReturnType<typeof buildSubmission>) {
+  const apiKey = process.env.RESEND_API_KEY;
+  const to = process.env.ASSESSMENT_NOTIFICATION_EMAIL || "sean@fit-proof.com";
+
+  if (!apiKey) {
+    console.warn("Assessment notification email skipped: RESEND_API_KEY is not configured.");
+    return;
+  }
+
+  const subject = `New FitProof Assessment Completed: ${submission.organization.name || "Organization"}`;
+  const text = buildEmailText(submission);
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      from: process.env.ASSESSMENT_NOTIFICATION_FROM || "FitProof Assessment <onboarding@resend.dev>",
+      to,
+      subject,
+      text,
+      html: `<div style="font-family:Arial,sans-serif;line-height:1.5;color:#111111">${escapeHtmlEmail(text)}</div>`
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Resend notification failed with status ${response.status}: ${errorText}`);
+  }
+}
+
+async function retainAndNotifySubmission(payload: CompletionPayload, report: GeneratedExecutiveReport, sources: SourcePage[]) {
+  const timestamp = new Date();
+  const submission = buildSubmission(payload, report, sources, timestamp);
+
+  try {
+    const filePath = await saveSubmission(submission, payload.profile.organization, timestamp);
+    console.log("Assessment submission saved", { filePath });
+  } catch (error) {
+    console.error("Assessment submission file save failed", error);
+  }
+
+  try {
+    await sendSubmissionEmail(submission);
+    console.log("Assessment notification email sent", {
+      organization: payload.profile.organization,
+      to: process.env.ASSESSMENT_NOTIFICATION_EMAIL || "sean@fit-proof.com"
+    });
+  } catch (error) {
+    console.error("Assessment notification email failed", error);
+  }
+}
+
 function buildPrompt(profile: Profile, responses: Responses, result: AssessmentResult, sources: SourcePage[]) {
   const sourceText = sources
     .map((source, index) => `SOURCE ${index + 1}: ${source.title}\nURL: ${source.url}\nTEXT: ${source.text}`)
@@ -328,11 +575,7 @@ function extractJson(text: string) {
 }
 
 export async function POST(request: Request) {
-  const payload = (await request.json()) as {
-    profile: Profile;
-    responses: Responses;
-    result: AssessmentResult;
-  };
+  const payload = (await request.json()) as CompletionPayload;
 
   const sources = await collectWebsiteSources(payload.profile.websiteUrl);
 
@@ -340,22 +583,24 @@ export async function POST(request: Request) {
     const generated = await generateWithOpenAI(payload.profile, payload.responses, payload.result, sources);
 
     if (generated) {
+      await retainAndNotifySubmission(payload, generated, sources);
       return NextResponse.json(generated);
     }
 
-    return NextResponse.json(
-      fallbackReport(
-        payload.profile,
-        payload.responses,
-        payload.result,
-        sources,
-        sources.length ? "AI report generation is not configured yet. Add OPENAI_API_KEY to use the collected public website content in the executive narrative." : undefined
-      )
+    const fallback = fallbackReport(
+      payload.profile,
+      payload.responses,
+      payload.result,
+      sources,
+      sources.length ? "AI report generation is not configured yet. Add OPENAI_API_KEY to use the collected public website content in the executive narrative." : undefined
     );
+    await retainAndNotifySubmission(payload, fallback, sources);
+
+    return NextResponse.json(fallback);
   } catch (error) {
     console.error("AI report generation failed", error);
-    return NextResponse.json(
-      fallbackReport(payload.profile, payload.responses, payload.result, sources, "AI report generation failed, so the deterministic executive report is shown instead.")
-    );
+    const fallback = fallbackReport(payload.profile, payload.responses, payload.result, sources, "AI report generation failed, so the deterministic executive report is shown instead.");
+    await retainAndNotifySubmission(payload, fallback, sources);
+    return NextResponse.json(fallback);
   }
 }
