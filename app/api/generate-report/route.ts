@@ -22,6 +22,11 @@ type SourcePage = {
   html: string;
 };
 
+type ReportSource = {
+  title: string;
+  url: string;
+};
+
 type CompletionPayload = {
   lead?: Lead & {
     name?: string;
@@ -101,12 +106,12 @@ function extractCandidateLinks(html: string, baseUrl: string) {
       seen.add(url);
       return true;
     })
-    .slice(0, 5);
+    .slice(0, 3);
 }
 
 async function fetchPage(url: string): Promise<SourcePage | null> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
+  const timeout = setTimeout(() => controller.abort(), 4000);
 
   try {
     const response = await fetch(url, {
@@ -124,7 +129,7 @@ async function fetchPage(url: string): Promise<SourcePage | null> {
     return {
       title: titleFromHtml(html, new URL(url).hostname),
       url,
-      text: textFromHtml(html).slice(0, 6000),
+      text: textFromHtml(html).slice(0, 3000),
       html
     };
   } catch {
@@ -146,7 +151,7 @@ async function collectWebsiteSources(rawUrl: string) {
 
   return [home, ...linkedPages.filter((page): page is SourcePage => Boolean(page))]
     .filter((page) => page.text.length > 250)
-    .slice(0, 6);
+    .slice(0, 4);
 }
 
 function fallbackReport(profile: Profile, responses: Responses, result: AssessmentResult, sources: SourcePage[] = [], reason?: string): GeneratedExecutiveReport {
@@ -327,6 +332,7 @@ function buildSubmission(payload: CompletionPayload, report: GeneratedExecutiveR
     recommendedFitProofEngagement: report.recommendedEngagement?.recommendedOffering || report.fitProofEngagement,
     companyResearchEnrichmentData: {
       publicSignals: report.publicSignals,
+      reportSources: report.sources,
       sources: sources.map((source) => ({
         title: source.title,
         url: source.url,
@@ -420,15 +426,16 @@ async function retainAndNotifySubmission(payload: CompletionPayload, report: Gen
     console.error("Assessment submission file save failed", error);
   }
 
-  try {
-    await sendSubmissionEmail(submission);
-    console.log("Assessment notification email sent", {
-      organization: payload.profile.organization,
-      to: process.env.ASSESSMENT_NOTIFICATION_EMAIL || "sean@fit-proof.com"
+  void sendSubmissionEmail(submission)
+    .then(() => {
+      console.log("Assessment notification email sent", {
+        organization: payload.profile.organization,
+        to: process.env.ASSESSMENT_NOTIFICATION_EMAIL || "sean@fit-proof.com"
+      });
+    })
+    .catch((error) => {
+      console.error("Assessment notification email failed", error);
     });
-  } catch (error) {
-    console.error("Assessment notification email failed", error);
-  }
 }
 
 function buildPrompt(profile: Profile, responses: Responses, result: AssessmentResult, sources: SourcePage[]) {
@@ -449,6 +456,8 @@ Rules:
 - Use public source text only as supporting context. Do not invent facts.
 - If data is unavailable, say so plainly.
 - Clearly distinguish known facts from reasonable inferences.
+- Use the provided website crawl plus live web search, when available, to look for nonprofit analyzer style signals: annual reports, Form 990 or financial signals, grants and contracts, leadership changes, news, program footprint, strategic plans, service geography, funding model, and public growth or restructuring signals.
+- Do not cite or rely on unsupported claims. If web search finds no reliable external signal, say that the signal was not available.
 - Write in an executive advisory memo style: specific, commercially useful, direct but not alarmist, practical, and implementation-oriented.
 - Avoid generic nonprofit filler and unsupported claims.
 - Return only valid JSON with this exact shape:
@@ -527,6 +536,7 @@ ${sourceText || "No public website content available."}`;
 async function generateWithOpenAI(profile: Profile, responses: Responses, result: AssessmentResult, sources: SourcePage[]) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
+  const webSearchEnabled = process.env.OPENAI_WEB_SEARCH_ENABLED !== "false";
 
   const reportSchema = {
     type: "object",
@@ -586,25 +596,30 @@ async function generateWithOpenAI(profile: Profile, responses: Responses, result
     }
   };
 
+  const requestBody = {
+    model: process.env.OPENAI_REPORT_MODEL || "gpt-4.1-mini",
+    input: buildPrompt(profile, responses, result, sources),
+    tools: webSearchEnabled ? [{ type: "web_search" }] : undefined,
+    tool_choice: webSearchEnabled ? "auto" : undefined,
+    text: {
+      format: {
+        type: "json_schema",
+        name: "fitproof_operational_strain_report",
+        strict: true,
+        schema: reportSchema
+      }
+    },
+    temperature: 0.2,
+    max_output_tokens: 3500
+  };
+
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({
-      model: process.env.OPENAI_REPORT_MODEL || "gpt-4.1-mini",
-      input: buildPrompt(profile, responses, result, sources),
-      text: {
-        format: {
-          type: "json_schema",
-          name: "fitproof_operational_strain_report",
-          strict: true,
-          schema: reportSchema
-        }
-      },
-      temperature: 0.2
-    })
+    body: JSON.stringify(requestBody)
   });
 
   if (!response.ok) {
@@ -623,12 +638,62 @@ async function generateWithOpenAI(profile: Profile, responses: Responses, result
   }
 
   const parsed = JSON.parse(extractJson(text)) as Omit<GeneratedExecutiveReport, "generated" | "sources">;
+  const reportSources = mergeReportSources(
+    sources.map((source) => ({ title: source.title, url: source.url })),
+    extractOpenAIWebSources(payload)
+  );
 
   return {
     generated: true,
     ...parsed,
-    sources: sources.map((source) => ({ title: source.title, url: source.url }))
+    sources: reportSources
   } satisfies GeneratedExecutiveReport;
+}
+
+function mergeReportSources(primary: ReportSource[], secondary: ReportSource[]) {
+  const seen = new Set<string>();
+  return [...primary, ...secondary].filter((source) => {
+    if (!source.url || seen.has(source.url)) return false;
+    seen.add(source.url);
+    return true;
+  });
+}
+
+function extractOpenAIWebSources(payload: {
+  output?: {
+    type?: string;
+    action?: {
+      sources?: {
+        title?: string;
+        url?: string;
+      }[];
+    };
+    content?: {
+      annotations?: {
+        type?: string;
+        title?: string;
+        url?: string;
+      }[];
+    }[];
+  }[];
+}) {
+  const sources: ReportSource[] = [];
+
+  payload.output?.forEach((item) => {
+    item.action?.sources?.forEach((source) => {
+      if (source.url) sources.push({ title: source.title || source.url, url: source.url });
+    });
+
+    item.content?.forEach((content) => {
+      content.annotations?.forEach((annotation) => {
+        if (annotation.type === "url_citation" && annotation.url) {
+          sources.push({ title: annotation.title || annotation.url, url: annotation.url });
+        }
+      });
+    });
+  });
+
+  return sources;
 }
 
 function extractJson(text: string) {
