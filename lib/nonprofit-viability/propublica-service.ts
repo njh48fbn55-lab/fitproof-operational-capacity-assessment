@@ -19,7 +19,10 @@ type ProPublicaFiling = Record<string, number | string | null | undefined> & {
   tax_prd_yr?: number;
   tax_prd?: number;
   totrevenue?: number;
+  totrevnue?: number;
+  totrcptperbks?: number;
   totexpenses?: number;
+  totfuncexpns?: number;
   totassetsend?: number;
   totliabend?: number;
   netassetsend?: number;
@@ -28,7 +31,6 @@ type ProPublicaFiling = Record<string, number | string | null | undefined> & {
   invstmntsend?: number;
   current_assets?: number;
   current_liabilities?: number;
-  totfuncexpns?: number;
   totprgmrevnue?: number;
   fundraisngfees?: number;
   pdf_url?: string;
@@ -140,8 +142,8 @@ export function financialYearsFromProPublica(payload: any): FinancialYear[] {
 
   const years = filings.map((filing) => {
     const fiscalYear = Number(filing.tax_prd_yr || String(filing.tax_prd || "").slice(0, 4) || new Date().getFullYear());
-    const totalRevenue = numberOrNull(filing.totrevenue);
-    const totalExpenses = numberOrNull(filing.totexpenses);
+    const totalRevenue = firstNumber([filing.totrevenue, filing.totrevnue, filing.totrcptperbks]);
+    const totalExpenses = firstNumber([filing.totfuncexpns, filing.totexpenses]);
     const surplus = totalRevenue !== null && totalExpenses !== null ? totalRevenue - totalExpenses : null;
     const cashAndInvestments = sumNumbers([filing.cashnoninterestbearing, filing.svngstempinv, filing.invstmntsend]);
     const totalAssets = numberOrNull(filing.totassetsend);
@@ -193,6 +195,14 @@ function numberOrNull(value: unknown) {
 function sumNumbers(values: unknown[]) {
   const numbers = values.map(numberOrNull).filter((value): value is number => value !== null);
   return numbers.length ? numbers.reduce((sum, value) => sum + value, 0) : null;
+}
+
+function firstNumber(values: unknown[]) {
+  for (const value of values) {
+    const parsed = numberOrNull(value);
+    if (parsed !== null) return parsed;
+  }
+  return null;
 }
 
 function ratio(numerator: number | null, denominator: number | null) {
