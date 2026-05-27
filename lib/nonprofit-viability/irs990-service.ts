@@ -14,7 +14,7 @@ type IrsIndexRow = {
 
 const USER_AGENT = "FitProof Nonprofit Viability Analyzer/1.0";
 const IRS_FETCH_TIMEOUT_MS = 6500;
-const MAX_ZIP_BYTES = 80 * 1024 * 1024;
+const MAX_ZIP_BYTES = 12 * 1024 * 1024;
 
 export async function irs990Service(input: NonprofitSearchInput): Promise<FinancialYear[]> {
   const ein = normalizeEin(input.ein);
@@ -99,6 +99,8 @@ async function fetchIrsXml(filing: IrsIndexRow) {
 }
 
 async function fetchIrsXmlFromTeosZip(filing: IrsIndexRow) {
+  if (process.env.IRS_TEOS_ZIP_LOOKUP_ENABLED !== "true") return null;
+
   const zipUrls = candidateZipUrls(filing);
 
   for (const url of zipUrls) {
