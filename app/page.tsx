@@ -619,7 +619,7 @@ function EnhancedAnalysisPanel({
           <p className="text-xs font-bold uppercase tracking-[0.16em] text-fitgreen">Enhanced analysis</p>
           <h2 className="mt-1 text-xl font-bold tracking-tight">nonprofit viability analysis</h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-slate">
-            Add nonprofit identifiers and optional audit or annual report files to enrich the assessment with public records, Form 990 data, website context, and 5-year financial trends.
+            Add the nonprofit name, state, website, and optional audit or annual report files. FitProof will infer the EIN, locate Form 990 data, and calculate 5-year financial trends where records are available.
           </p>
         </div>
         <button
@@ -632,9 +632,8 @@ function EnhancedAnalysisPanel({
         </button>
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-4">
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
         <Field label="Nonprofit name" value={profile.name} onChange={(value) => onProfileChange({ ...profile, name: value })} />
-        <Field label="EIN" value={profile.ein} onChange={(value) => onProfileChange({ ...profile, ein: value })} />
         <Field label="State" value={profile.state} onChange={(value) => onProfileChange({ ...profile, state: value.toUpperCase().slice(0, 2) })} />
         <Field label="Website" value={profile.website} onChange={(value) => onProfileChange({ ...profile, website: value })} />
       </div>

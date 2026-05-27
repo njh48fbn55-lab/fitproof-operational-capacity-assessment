@@ -64,7 +64,7 @@ export async function propublicaService(input: NonprofitSearchInput): Promise<{ 
 }
 
 export function organizationFromProPublica(payload: any, input: NonprofitSearchInput): Organization | null {
-  const org = (payload?.organization || payload?.organizations?.[0]) as ProPublicaOrganization | undefined;
+  const org = bestOrganization(payload, input);
   if (!org) return null;
   const ein = normalizeEin(String(org.ein || org.strein || input.ein || ""));
   const name = org.name || org.sub_name || input.name || null;
@@ -92,6 +92,44 @@ export function organizationFromProPublica(payload: any, input: NonprofitSearchI
     sourceConfidence: confidenceFromScore(org.score),
     sources: [source]
   };
+}
+
+function bestOrganization(payload: any, input: NonprofitSearchInput): ProPublicaOrganization | undefined {
+  if (payload?.organization) return payload.organization as ProPublicaOrganization;
+  const organizations = (payload?.organizations || []) as ProPublicaOrganization[];
+  if (!organizations.length) return undefined;
+
+  return [...organizations].sort((a, b) => matchScore(b, input) - matchScore(a, input))[0];
+}
+
+function matchScore(org: ProPublicaOrganization, input: NonprofitSearchInput) {
+  const requestedName = normalizeMatchText(input.name || "");
+  const candidateName = normalizeMatchText([org.name, org.sub_name].filter(Boolean).join(" "));
+  const requestedTokens = new Set(requestedName.split(" ").filter((token) => token.length > 2));
+  const candidateTokens = new Set(candidateName.split(" ").filter((token) => token.length > 2));
+  const overlap = [...requestedTokens].filter((token) => candidateTokens.has(token)).length;
+  const domainToken = domainNameToken(input.website);
+
+  let score = Number(org.score || 0);
+  if (requestedName && candidateName.includes(requestedName)) score += 40;
+  score += overlap * 12;
+  if (input.state && org.state?.toUpperCase() === input.state.toUpperCase()) score += 25;
+  if (domainToken && candidateTokens.has(domainToken)) score += 30;
+  return score;
+}
+
+function normalizeMatchText(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function domainNameToken(website?: string | null) {
+  if (!website) return "";
+  try {
+    const url = new URL(/^https?:\/\//i.test(website) ? website : `https://${website}`);
+    return url.hostname.replace(/^www\./, "").split(".")[0].replace(/[^a-z0-9]/gi, "").toLowerCase();
+  } catch {
+    return "";
+  }
 }
 
 export function financialYearsFromProPublica(payload: any): FinancialYear[] {

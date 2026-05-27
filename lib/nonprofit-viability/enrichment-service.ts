@@ -9,24 +9,26 @@ import { stateRegistryService } from "./state-registry-service";
 import { EnhancedAnalysisRequest, EnhancedAnalysisResult, SourceDocument } from "./types";
 import { viabilityScoringService } from "./viability-scoring-service";
 import { websiteAnalysisService } from "./website-analysis-service";
-import { makeId, nowIso, writeJsonRecord } from "./utils";
+import { makeId, normalizeEin, nowIso, writeJsonRecord } from "./utils";
 
 export async function nonprofitEnrichmentService(request: EnhancedAnalysisRequest): Promise<EnhancedAnalysisResult> {
   const organization = await nonprofitSearchService(request);
+  const inferredEin = normalizeEin(organization.ein || request.ein);
+  const enrichedRequest = {
+    ...request,
+    name: organization.legalName || request.name,
+    ein: inferredEin || request.ein,
+    state: organization.state || request.state,
+    website: organization.website || request.website
+  };
   const [form990Years, propublicaFallback, websiteAnalysis, websiteAuditSources, registryResults, publicRecords] = await Promise.all([
-    irs990Service(request),
-    propublicaService(request),
-    websiteAnalysisService(organization.website || request.website),
-    findAuditDocumentsOnWebsite(organization.website || request.website),
-    stateRegistryService(organization.legalName || request.name, organization.state || request.state, request.includeStateRegistrySearch ?? true),
+    irs990Service(enrichedRequest),
+    propublicaService(enrichedRequest),
+    websiteAnalysisService(enrichedRequest.website),
+    findAuditDocumentsOnWebsite(enrichedRequest.website),
+    stateRegistryService(enrichedRequest.name, enrichedRequest.state, request.includeStateRegistrySearch ?? true),
     publicRecordsService(
-      {
-        ...request,
-        name: organization.legalName || request.name,
-        ein: organization.ein || request.ein,
-        state: organization.state || request.state,
-        website: organization.website || request.website
-      },
+      enrichedRequest,
       request.includePublicRecordsSearch ?? true
     )
   ]);
