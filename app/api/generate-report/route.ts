@@ -698,24 +698,18 @@ async function generateWithOpenAI(profile: Profile, responses: Responses, result
       }
     },
     temperature: 0.2,
-    max_output_tokens: 3500
+    max_output_tokens: 6000
   };
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(requestBody)
+  const payload = await requestOpenAIReport(apiKey, requestBody).catch(async (error) => {
+    console.error("OpenAI report generation primary attempt failed", error);
+    if (!webSearchEnabled) throw error;
+    return requestOpenAIReport(apiKey, {
+      ...requestBody,
+      tools: undefined,
+      tool_choice: undefined
+    });
   });
-
-  if (!response.ok) {
-    const errorBody = await response.text();
-    throw new Error(`OpenAI report request failed with status ${response.status}: ${errorBody}`);
-  }
-
-  const payload = await response.json();
   const text =
     payload.output_text ||
     payload.output?.flatMap((item: { content?: { text?: string }[] }) => item.content || []).map((content: { text?: string }) => content.text || "").join("") ||
@@ -736,6 +730,24 @@ async function generateWithOpenAI(profile: Profile, responses: Responses, result
     ...parsed,
     sources: reportSources
   } satisfies GeneratedExecutiveReport;
+}
+
+async function requestOpenAIReport(apiKey: string, requestBody: Record<string, unknown>) {
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(requestBody)
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`OpenAI report request failed with status ${response.status}: ${errorBody}`);
+  }
+
+  return response.json();
 }
 
 function mergeReportSources(primary: ReportSource[], secondary: ReportSource[]) {
