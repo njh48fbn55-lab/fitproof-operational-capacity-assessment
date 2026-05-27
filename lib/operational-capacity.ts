@@ -1,6 +1,6 @@
 export type DomainId = "context" | "systems" | "process" | "staffing" | "knowledge" | "visibility" | "sustainability";
 
-export type QuestionType = "single" | "multi" | "text";
+export type QuestionType = "single" | "multi" | "text" | "systems-map";
 
 export type AnswerOption = {
   label: string;
@@ -13,6 +13,10 @@ export type Question = {
   prompt: string;
   type: QuestionType;
   options?: AnswerOption[];
+  helperText?: string;
+  helpText?: string;
+  allowOther?: boolean;
+  optional?: boolean;
 };
 
 export type Domain = {
@@ -32,7 +36,20 @@ export type Lead = {
   email: string;
 };
 
-export type Responses = Record<string, string | string[]>;
+export type SystemCategory = "fundraising" | "crm" | "finance" | "reporting" | "operations";
+
+export type SystemMappingResponse = {
+  tools?: Partial<Record<SystemCategory, string>>;
+  otherTools?: Partial<Record<SystemCategory, string>>;
+  integration?: string;
+  duplicateEntry?: string[];
+  duplicateEntryOther?: string;
+  sourceOfTruth?: string;
+  sourceOfTruthOther?: string;
+  reportConfidence?: string;
+};
+
+export type Responses = Record<string, string | string[] | SystemMappingResponse>;
 
 export type DomainScore = Domain & {
   risk: number;
@@ -95,6 +112,74 @@ export type GeneratedExecutiveReport = {
   sources: { title: string; url: string }[];
 };
 
+export const systemCategories: Array<{ id: SystemCategory; label: string; options: string[] }> = [
+  {
+    id: "fundraising",
+    label: "Fundraising",
+    options: ["Blackbaud Raiser’s Edge NXT", "Salesforce Nonprofit Cloud / NPSP", "Bloomerang", "DonorPerfect", "Neon CRM", "Classy", "Givebutter", "None", "I don't know", "Other"]
+  },
+  {
+    id: "crm",
+    label: "CRM",
+    options: ["Salesforce", "Microsoft Dynamics 365", "HubSpot", "Blackbaud CRM / Raiser’s Edge NXT", "Neon CRM", "Bloomerang", "DonorPerfect", "None", "I don't know", "Other"]
+  },
+  {
+    id: "finance",
+    label: "Finance",
+    options: ["QuickBooks", "Sage Intacct", "Blackbaud Financial Edge NXT", "MIP Fund Accounting", "NetSuite", "Xero", "Aplos", "None", "I don't know", "Other"]
+  },
+  {
+    id: "reporting",
+    label: "Reporting",
+    options: ["Excel / Google Sheets", "Power BI", "Tableau", "Looker Studio", "Salesforce Reports / Dashboards", "Blackbaud reporting", "Custom data warehouse / BI tool", "None", "I don't know", "Other"]
+  },
+  {
+    id: "operations",
+    label: "Operations",
+    options: ["Asana", "Monday.com", "Smartsheet", "Airtable", "ClickUp", "Jira", "Microsoft Planner / Teams", "None", "I don't know", "Other"]
+  }
+];
+
+export const duplicateEntryOptions = [
+  "Fundraising to CRM",
+  "Fundraising to finance",
+  "Finance to reporting",
+  "Program data to reporting",
+  "Operations/project data to reporting",
+  "Board reports",
+  "No major duplicate entry",
+  "I don't know",
+  "Other"
+];
+
+export const sourceOfTruthOptions = [
+  "CRM/fundraising system",
+  "Finance system",
+  "Reporting or BI tool",
+  "Excel / Google Sheets",
+  "Different systems for different teams",
+  "No clear source of truth",
+  "I don't know",
+  "Other"
+];
+
+export const integrationOptions: AnswerOption[] = [
+  { label: "Systems share data automatically", risk: 0 },
+  { label: "Some systems share data automatically, but manual work remains", risk: 1 },
+  { label: "Systems are connected mostly through manual exports/imports", risk: 3 },
+  { label: "Systems do not share data", risk: 4 },
+  { label: "I don't know", risk: 2 }
+];
+
+export const reportingConfidenceOptions: AnswerOption[] = [
+  { label: "Extremely confident", risk: 0 },
+  { label: "Very confident", risk: 1 },
+  { label: "Somewhat confident", risk: 2 },
+  { label: "Slightly confident", risk: 3 },
+  { label: "Not confident at all", risk: 4 },
+  { label: "I don't know", risk: 2 }
+];
+
 const frequency = [
   { label: "Constantly", risk: 4 },
   { label: "Usually", risk: 3 },
@@ -120,50 +205,30 @@ const easePositive = [
 ];
 
 export const domains: Domain[] = [
-  { id: "context", title: "Operational Complexity Context", shortTitle: "Context", weight: 10, purpose: "Demand pressure and public financial context pulled from available filings, reports, and website sources." },
-  { id: "systems", title: "Systems & Infrastructure", shortTitle: "Systems", weight: 16, purpose: "Integration, data reliability, system fragmentation, and manual workarounds." },
-  { id: "process", title: "Process & Workflow Stability", shortTitle: "Process", weight: 14, purpose: "Documentation, handoffs, repeatability, and workflow scalability." },
+  { id: "systems", title: "Systems & Infrastructure", shortTitle: "Systems", weight: 18, purpose: "Integration, data reliability, system fragmentation, and manual workarounds." },
+  { id: "process", title: "Process & Workflow Stability", shortTitle: "Process", weight: 16, purpose: "Documentation, handoffs, repeatability, and workflow scalability." },
   { id: "staffing", title: "Staffing Capacity Indicators", shortTitle: "Staffing", weight: 16, purpose: "Overtime, firefighting, bottlenecks, responsiveness, role coverage, and turnover." },
   { id: "knowledge", title: "Knowledge Infrastructure", shortTitle: "Knowledge", weight: 12, purpose: "Repository reliability, documentation access, SOP currency, and onboarding readiness." },
-  { id: "visibility", title: "Visibility & Decision-Making", shortTitle: "Visibility", weight: 14, purpose: "Dashboards, KPI confidence, reporting consistency, forecasting, and board reporting." },
-  { id: "sustainability", title: "Sustainability & Mission Strain", shortTitle: "Mission Strain", weight: 18, purpose: "Program cuts, staffing gaps, restructuring risk, growth confidence, and mission impact." }
+  { id: "visibility", title: "Visibility & Decision-Making", shortTitle: "Visibility", weight: 16, purpose: "Dashboards, KPI confidence, reporting consistency, forecasting, and board reporting." },
+  { id: "sustainability", title: "Sustainability & Mission Strain", shortTitle: "Mission Strain", weight: 22, purpose: "Demand pressure, program cuts, staffing gaps, restructuring risk, growth confidence, and mission impact." }
 ];
 
 export const questions: Question[] = [
-  { id: "demand-change", domainId: "context", prompt: "Demand change over the past 12 months", type: "single", options: [{ label: "Increased significantly", risk: 4 }, { label: "Increased moderately", risk: 3 }, { label: "Stayed flat", risk: 1 }, { label: "Decreased moderately", risk: 2 }, { label: "Decreased significantly", risk: 3 }] },
-  { id: "core-systems", domainId: "systems", prompt: "How many core systems are used for fundraising, finance, reporting, and operations?", type: "single", options: [{ label: "1-2", risk: 0 }, { label: "3-5", risk: 1 }, { label: "6-10", risk: 3 }, { label: "10+", risk: 4 }] },
   {
-    id: "systems-integrated",
+    id: "core-systems",
     domainId: "systems",
-    prompt: "Level of system integration",
-    type: "single",
-    options: [
-      { label: "Everything is integrated", risk: 0 },
-      { label: "Many are integrated", risk: 1 },
-      { label: "Some are integrated", risk: 2 },
-      { label: "Few are integrated", risk: 3 },
-      { label: "None are integrated", risk: 4 }
-    ]
+    prompt: "Which tools support your core systems, and how well do they work together?",
+    type: "systems-map",
+    helperText: "Select the main tool in each category, then answer the integration and reporting-confidence questions below.",
+    helpText: "This maps the tools your organization relies on and whether they work together. The score is based on integration, duplicate entry, report confidence, and source-of-truth clarity, not on whether a specific vendor is good or bad."
   },
   { id: "manual-workarounds", domainId: "systems", prompt: "How often do teams rely on spreadsheets or manual workarounds outside core systems?", type: "single", options: frequency },
-  {
-    id: "data-confidence",
-    domainId: "systems",
-    prompt: "How confident is leadership in the accuracy and consistency of operational data?",
-    type: "single",
-    options: [
-      { label: "Extremely confident", risk: 0 },
-      { label: "Very confident", risk: 1 },
-      { label: "Somewhat confident", risk: 2 },
-      { label: "Slightly confident", risk: 3 },
-      { label: "Not confident at all", risk: 4 }
-    ]
-  },
   { id: "performance-view", domainId: "systems", prompt: "How difficult is it to obtain a complete view of performance across departments?", type: "single", options: easePositive },
+  { id: "workflow-friction", domainId: "process", prompt: "Which major operational workflows create the most friction for your team?", type: "multi", allowOther: true, helperText: "Examples include grant reporting, donor gift processing, client intake, referral management, program enrollment, service documentation, billing/reimbursement, board reporting, financial close, HR onboarding, or cross-department handoffs.", options: [{ label: "Grant reporting", risk: 1 }, { label: "Donor gift processing", risk: 1 }, { label: "Client intake", risk: 1 }, { label: "Referral management", risk: 1 }, { label: "Program enrollment", risk: 1 }, { label: "Service documentation", risk: 1 }, { label: "Billing / reimbursement", risk: 1 }, { label: "Board reporting", risk: 1 }, { label: "Financial close", risk: 1 }, { label: "HR onboarding", risk: 1 }, { label: "Cross-department handoffs", risk: 1 }, { label: "Other", risk: 1 }] },
   { id: "workflow-docs", domainId: "process", prompt: "Major operational workflows are formally documented.", type: "single", options: [{ label: "Fully", risk: 0 }, { label: "Mostly", risk: 1 }, { label: "Partially", risk: 2 }, { label: "Minimally", risk: 3 }, { label: "Not documented", risk: 4 }] },
   { id: "workflow-consistency", domainId: "process", prompt: "Workflows are consistent across teams and programs.", type: "single", options: agreementPositive },
   { id: "handoff-breakdowns", domainId: "process", prompt: "How often do handoffs break down between departments?", type: "single", options: frequency },
-  { id: "manual-reporting", domainId: "process", prompt: "How much time is spent on manual reporting or duplicate data entry?", type: "single", options: [{ label: "Excessive", risk: 4 }, { label: "Significant", risk: 3 }, { label: "Moderate", risk: 2 }, { label: "Limited", risk: 1 }, { label: "Minimal", risk: 0 }] },
+  { id: "manual-reporting", domainId: "process", prompt: "Across the team members involved in reporting, finance, fundraising, programs, or operations, approximately how many total staff hours per month are spent on manual reporting, spreadsheet cleanup, or duplicate data entry?", type: "single", options: [{ label: "Less than 5 hours/month", risk: 0 }, { label: "5–15 hours/month", risk: 1 }, { label: "16–40 hours/month", risk: 2 }, { label: "41–80 hours/month", risk: 3 }, { label: "More than 80 hours/month", risk: 4 }, { label: "I don't know", risk: 2 }], helpText: "Estimate the total time across everyone involved, not just one person. Include copying data between systems, cleaning spreadsheets, reconciling reports, re-entering information, and manually preparing recurring reports." },
   { id: "scale-25", domainId: "process", prompt: "If demand increased by 25%, current operational processes could scale effectively.", type: "single", options: agreementPositive },
   { id: "overtime", domainId: "staffing", prompt: "How frequently are employees working overtime?", type: "single", options: frequency },
   { id: "firefighting", domainId: "staffing", prompt: "How often are leaders or teams operating in firefighting mode rather than executing planned work?", type: "single", options: frequency },
@@ -172,20 +237,21 @@ export const questions: Question[] = [
   { id: "demand-response", domainId: "staffing", prompt: "How effectively can the organization respond to sudden increases in operational or service demand?", type: "single", options: [{ label: "Very effectively", risk: 0 }, { label: "Effectively", risk: 1 }, { label: "Adequately", risk: 2 }, { label: "With difficulty", risk: 3 }, { label: "Unable", risk: 4 }] },
   { id: "role-coverage", domainId: "staffing", prompt: "How often are employees required to cover multiple operational roles for extended periods?", type: "single", options: frequency },
   { id: "turnover-trend", domainId: "staffing", prompt: "Over the past 12 months, how has employee turnover changed?", type: "single", options: [{ label: "Increased significantly", risk: 4 }, { label: "Increased somewhat", risk: 3 }, { label: "Stable", risk: 1 }, { label: "Decreased", risk: 0 }, { label: "I don't know", risk: 2 }] },
-  { id: "knowledge-storage", domainId: "knowledge", prompt: "Where is operational knowledge primarily stored?", type: "single", options: [{ label: "Centralized knowledge system", risk: 0 }, { label: "Shared docs", risk: 1 }, { label: "Team files", risk: 2 }, { label: "Individual docs or spreadsheets", risk: 3 }, { label: "Primarily held by individuals", risk: 4 }] },
+  { id: "knowledge-storage", domainId: "knowledge", prompt: "How much critical organizational knowledge lives in the heads of specific employees?", type: "single", options: [{ label: "Very little; it is documented centrally", risk: 0 }, { label: "Some, but most is documented", risk: 1 }, { label: "A moderate amount", risk: 2 }, { label: "A significant amount", risk: 3 }, { label: "Most critical knowledge lives with specific people", risk: 4 }] },
   { id: "documentation-access", domainId: "knowledge", prompt: "How easy is it for employees to locate accurate process documentation or operational guidance?", type: "single", options: easePositive },
   { id: "sop-currency", domainId: "knowledge", prompt: "How frequently are operational documents, SOPs, or workflow documentation updated?", type: "single", options: [{ label: "Continuously", risk: 0 }, { label: "Regularly", risk: 1 }, { label: "Occasionally", risk: 2 }, { label: "Rarely", risk: 3 }, { label: "Almost never", risk: 4 }] },
   { id: "change-communication", domainId: "knowledge", prompt: "When processes change, how consistently are those changes documented and communicated?", type: "single", options: [{ label: "Always", risk: 0 }, { label: "Usually", risk: 1 }, { label: "Occasionally", risk: 2 }, { label: "Rarely", risk: 3 }, { label: "Never", risk: 4 }] },
   { id: "dashboard-access", domainId: "visibility", prompt: "Leadership has timely access to reliable dashboards and KPIs.", type: "single", options: agreementPositive },
   { id: "conflicting-metrics", domainId: "visibility", prompt: "How often do departments report conflicting numbers or metrics?", type: "single", options: frequency },
   { id: "forecast-confidence", domainId: "visibility", prompt: "Leadership can forecast revenue, cash flow, or service capacity with confidence.", type: "single", options: agreementPositive },
-  { id: "board-reporting", domainId: "visibility", prompt: "How difficult is it to produce board-ready reporting?", type: "single", options: easePositive },
+  { id: "board-reporting", domainId: "visibility", prompt: "Approximately how many staff hours does it take each month or board cycle to produce board-ready reporting?", type: "single", options: [{ label: "Less than 5 hours", risk: 0 }, { label: "5–15 hours", risk: 1 }, { label: "16–40 hours", risk: 2 }, { label: "41–80 hours", risk: 3 }, { label: "More than 80 hours", risk: 4 }, { label: "I don't know", risk: 2 }], helpText: "This asks how much effort it takes to prepare accurate, leadership-ready reports for your board. Include pulling data, cleaning spreadsheets, reconciling numbers, creating charts, and checking accuracy." },
+  { id: "board-reporting-barriers", domainId: "visibility", prompt: "What makes board reporting difficult?", type: "multi", allowOther: true, options: [{ label: "Data lives in multiple systems", risk: 1 }, { label: "Reports require manual spreadsheet work", risk: 1 }, { label: "Definitions are inconsistent across teams", risk: 1 }, { label: "Reports require finance/program/fundraising reconciliation", risk: 1 }, { label: "We lack dashboard or BI tools", risk: 1 }, { label: "Accuracy checks take significant time", risk: 1 }, { label: "Other", risk: 1 }] },
   { id: "early-warning", domainId: "visibility", prompt: "Leaders have enough visibility to identify problems before they become urgent.", type: "single", options: agreementPositive },
+  { id: "demand-change", domainId: "sustainability", prompt: "Demand change over the past 12 months", type: "single", options: [{ label: "Increased significantly", risk: 4 }, { label: "Increased moderately", risk: 3 }, { label: "Stayed flat", risk: 1 }, { label: "Decreased moderately", risk: 2 }, { label: "Decreased significantly", risk: 3 }] },
   { id: "program-cuts", domainId: "sustainability", prompt: "Have you delayed, reduced, or cut programs due to operational or financial strain?", type: "single", options: [{ label: "Frequently", risk: 4 }, { label: "Occasionally", risk: 3 }, { label: "Rarely", risk: 1 }, { label: "Never", risk: 0 }] },
   { id: "staffing-service-quality", domainId: "sustainability", prompt: "Are staffing gaps affecting service quality or responsiveness?", type: "single", options: frequency },
-  { id: "restructuring-risk", domainId: "sustainability", prompt: "Are you considering restructuring, merging, or reducing services?", type: "single", options: [{ label: "Yes, actively", risk: 4 }, { label: "Possibly", risk: 3 }, { label: "Discussed informally", risk: 2 }, { label: "No", risk: 0 }] },
   { id: "growth-confidence", domainId: "sustainability", prompt: "Current infrastructure can support future growth.", type: "single", options: agreementPositive },
-  { id: "biggest-constraint", domainId: "sustainability", prompt: "What is the single biggest operational constraint facing the organization today?", type: "text" }
+  { id: "biggest-constraint", domainId: "sustainability", prompt: "What additional operational context would help explain your results?", type: "text", optional: true, helperText: "Optional: include only context that would be useful for interpreting the report.", helpText: "Use this only if there is specific context the assessment did not capture. Blank, unsure, none, or low-information answers are ignored in scoring and narrative." }
 ];
 
 export const unknownOption: AnswerOption = { label: "I don't know", risk: 2 };
@@ -217,7 +283,13 @@ function clamp(value: number) {
 function riskForAnswer(question: Question, responses: Responses) {
   if (question.type === "text") return null;
   const answer = responses[question.id];
-  if (!answer || !question.options) return null;
+  if (!answer) return null;
+
+  if (question.type === "systems-map") {
+    return riskForSystemMapping(answer);
+  }
+
+  if (!question.options) return null;
 
   if (answer === unknownOption.label || (Array.isArray(answer) && answer.includes(unknownOption.label))) {
     return unknownOption.risk;
@@ -228,6 +300,37 @@ function riskForAnswer(question: Question, responses: Responses) {
   }
 
   return getQuestionOptions(question).find((option) => option.label === answer)?.risk ?? null;
+}
+
+function riskForSystemMapping(answer: Responses[string]) {
+  if (!isSystemMappingResponse(answer)) return null;
+  const risks: number[] = [];
+  const integrationRisk = integrationOptions.find((option) => option.label === answer.integration)?.risk;
+  const confidenceRisk = reportingConfidenceOptions.find((option) => option.label === answer.reportConfidence)?.risk;
+  if (typeof integrationRisk === "number") risks.push(integrationRisk);
+  if (typeof confidenceRisk === "number") risks.push(confidenceRisk);
+
+  const selectedTools = systemCategories.map((category) => answer.tools?.[category.id]).filter(Boolean) as string[];
+  const noneCount = selectedTools.filter((tool) => tool === "None").length;
+  const unknownCount = selectedTools.filter((tool) => tool === "I don't know").length;
+  if (noneCount) risks.push(Math.min(4, noneCount));
+  if (unknownCount) risks.push(Math.min(3, unknownCount));
+
+  const duplicateEntry = answer.duplicateEntry || [];
+  if (duplicateEntry.includes("No major duplicate entry")) risks.push(0);
+  else if (duplicateEntry.includes("I don't know")) risks.push(2);
+  else if (duplicateEntry.length) risks.push(Math.min(4, duplicateEntry.length));
+
+  if (answer.sourceOfTruth === "No clear source of truth") risks.push(4);
+  if (answer.sourceOfTruth === "Different systems for different teams") risks.push(3);
+  if (answer.sourceOfTruth === "Excel / Google Sheets") risks.push(2);
+  if (answer.sourceOfTruth === "I don't know") risks.push(2);
+
+  return risks.length ? risks.reduce((sum, risk) => sum + risk, 0) / risks.length : null;
+}
+
+export function isSystemMappingResponse(value: Responses[string]): value is SystemMappingResponse {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 export function getQuestionOptions(question: Question) {
@@ -302,5 +405,33 @@ export function generateRisks(result: AssessmentResult) {
 
 export function getOpenConstraint(responses: Responses) {
   const value = responses["biggest-constraint"];
-  return typeof value === "string" ? value.trim() : "";
+  return typeof value === "string" && isMeaningfulActionableText(value) ? value.trim() : "";
+}
+
+export function isMeaningfulActionableText(value: string) {
+  const normalized = value.trim().toLowerCase().replace(/[.'"]/g, "");
+  if (!normalized) return false;
+  if (normalized.length < 12) return false;
+  return !/^(i\s*don'?t know|dont know|not sure|unsure|n\/a|na|none|nothing|no|nope|unknown|not applicable|not at this time)$/i.test(normalized);
+}
+
+export function getSystemMappingSummary(responses: Responses) {
+  const answer = responses["core-systems"];
+  if (!isSystemMappingResponse(answer)) return "";
+  const tools = systemCategories
+    .map((category) => {
+      const selected = answer.tools?.[category.id];
+      if (!selected || selected === "I don't know") return "";
+      const label = selected === "Other" ? answer.otherTools?.[category.id] : selected;
+      return label ? `${category.label}: ${label}` : "";
+    })
+    .filter(Boolean);
+  const details = [
+    tools.length ? `Selected systems include ${tools.join("; ")}.` : "",
+    answer.integration ? `Integration pattern: ${answer.integration}.` : "",
+    answer.sourceOfTruth ? `Source of truth: ${answer.sourceOfTruth === "Other" ? answer.sourceOfTruthOther || "Other" : answer.sourceOfTruth}.` : "",
+    answer.reportConfidence ? `Leadership report confidence: ${answer.reportConfidence}.` : "",
+    answer.duplicateEntry?.length ? `Duplicate entry appears around ${answer.duplicateEntry.join(", ")}.` : ""
+  ];
+  return details.filter(Boolean).join(" ");
 }

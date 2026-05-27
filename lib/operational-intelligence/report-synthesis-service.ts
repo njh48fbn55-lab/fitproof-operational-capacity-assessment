@@ -1,4 +1,4 @@
-import { AssessmentResult, Profile, Responses, stageRecommendations } from "@/lib/operational-capacity";
+import { AssessmentResult, Profile, Responses, getOpenConstraint, getSystemMappingSummary, stageRecommendations } from "@/lib/operational-capacity";
 import { EnhancedAnalysisResult } from "@/lib/nonprofit-viability/types";
 import { WorkforceCapacityAnalysis } from "@/lib/workforce-capacity/types";
 import { benchmarkingService } from "./benchmarking-service";
@@ -26,7 +26,7 @@ export function reportSynthesisService({
   const growthReadinessScore = growthReadinessScoreService({ result, enhancedAnalysis, workforceCapacityAnalysis });
   const operationalStrainSpiral = operationalStrainSpiralClassifier({ result, enhancedAnalysis, workforceCapacityAnalysis, organizationalHealthScore, growthReadinessScore });
   const benchmarkPercentile = organizationalHealthScore.percentileRanking;
-  const findings = keyFindings({ profile, result, enhancedAnalysis, workforceCapacityAnalysis, organizationalHealthScore, growthReadinessScore, operationalStrainSpiral, benchmarks }).slice(0, 5);
+  const findings = keyFindings({ profile, result, responses, enhancedAnalysis, workforceCapacityAnalysis, organizationalHealthScore, growthReadinessScore, operationalStrainSpiral, benchmarks }).slice(0, 5);
   const risks = primaryRisks({ result, enhancedAnalysis, workforceCapacityAnalysis, operationalStrainSpiral }).slice(0, 5);
   const constraints = growthReadinessScore.growthConstraints.slice(0, 5);
   const priorities = recommendedPriorities(result, growthReadinessScore, operationalStrainSpiral).slice(0, 5);
@@ -64,6 +64,7 @@ export function reportSynthesisService({
     recommendedPriorities: priorities,
     supportingMetrics: supportingMetrics(enhancedAnalysis, workforceCapacityAnalysis, responses),
     workforceExtractionDebug: workforceCapacityAnalysis?.careers.debug || null,
+    annualReportInsight: annualReportInsight(enhancedAnalysis),
     dataQualityNotes: dataQualityNotes(enhancedAnalysis, workforceCapacityAnalysis)
   };
 }
@@ -71,6 +72,7 @@ export function reportSynthesisService({
 function keyFindings({
   profile,
   result,
+  responses,
   enhancedAnalysis,
   workforceCapacityAnalysis,
   organizationalHealthScore,
@@ -80,6 +82,7 @@ function keyFindings({
 }: {
   profile: Profile;
   result: AssessmentResult;
+  responses: Responses;
   enhancedAnalysis: EnhancedAnalysisResult | null;
   workforceCapacityAnalysis: WorkforceCapacityAnalysis | null;
   organizationalHealthScore: ReturnType<typeof organizationalHealthScoreService>;
@@ -88,8 +91,10 @@ function keyFindings({
   benchmarks: BenchmarkComparison[];
 }) {
   const latest = latestFinancialYear(enhancedAnalysis);
+  const systemSummary = getSystemMappingSummary(responses);
   const findings = [
     `${profile.organization || "The organization"} is classified as ${operationalStrainSpiral.currentStage} with ${operationalStrainSpiral.stageConfidence}% confidence.`,
+    systemSummary ? systemSummary : "",
     `Organizational Health is ${organizationalHealthScore.totalScore}/100; strongest constraints are ${lowestCategories(organizationalHealthScore.categoryScores).join(" and ")}.`,
     `Growth Readiness is ${growthReadinessScore.score}/100 (${growthReadinessScore.classification}).`,
     metric(latest, "surplusMargin") !== null ? `Latest surplus margin is ${formatPercent(metric(latest, "surplusMargin"))}.` : "",
@@ -132,6 +137,9 @@ function recommendedPriorities(result: AssessmentResult, growthReadinessScore: R
 
 function supportingMetrics(enhancedAnalysis: EnhancedAnalysisResult | null, workforceCapacityAnalysis: WorkforceCapacityAnalysis | null, responses: Responses): SupportingMetric[] {
   const latest = latestFinancialYear(enhancedAnalysis);
+  const systemSummary = getSystemMappingSummary(responses);
+  const openConstraint = getOpenConstraint(responses);
+  const workflowFriction = Array.isArray(responses["workflow-friction"]) ? responses["workflow-friction"].join(", ") : "";
   return [
     latest?.fiscalYear ? { label: "Latest fiscal year", value: String(latest.fiscalYear), source: latest.sourceNote } : null,
     metric(latest, "totalRevenue") !== null ? { label: "Total revenue", value: formatMoney(metric(latest, "totalRevenue")), source: sourceForMetric(latest, "totalRevenue") } : null,
@@ -143,7 +151,10 @@ function supportingMetrics(enhancedAnalysis: EnhancedAnalysisResult | null, work
     workforceCapacityAnalysis?.workforceSize.estimatedEmployeeCount && workforceCapacityAnalysis.workforceSize.confidence !== "low" ? { label: "Estimated headcount", value: String(workforceCapacityAnalysis.workforceSize.estimatedEmployeeCount), source: workforceCapacityAnalysis.workforceSize.sources.join("; ") || "Reliable public source" } : null,
     workforceCapacityAnalysis?.metrics.openRoleRatio !== null && workforceCapacityAnalysis ? { label: "Open position ratio", value: formatPercent(workforceCapacityAnalysis.metrics.openRoleRatio), source: "Public open roles divided by reliable estimated employee count" } : null,
     workforceCapacityAnalysis ? { label: "Leadership openings", value: String(workforceCapacityAnalysis.metrics.leadershipOpenings), source: "Public careers pages and hiring platforms" } : null,
-    responses["biggest-constraint"] ? { label: "Stated operating constraint", value: String(responses["biggest-constraint"]), source: "Assessment response" } : null
+    systemSummary ? { label: "Core system map", value: systemSummary, source: "Assessment response" } : null,
+    workflowFriction ? { label: "Major workflow friction", value: workflowFriction, source: "Assessment response" } : null,
+    openConstraint ? { label: "Stated operating context", value: openConstraint, source: "Assessment response" } : null,
+    enhancedAnalysis?.annualReportAnalysis.score ? { label: "Annual Report Sophistication Score", value: `${enhancedAnalysis.annualReportAnalysis.score.totalScore}/100`, source: enhancedAnalysis.annualReportAnalysis.sourceDocument?.url || "Annual report scan" } : null
   ].filter((item): item is SupportingMetric => Boolean(item));
 }
 
@@ -341,7 +352,27 @@ function dataQualityNotes(enhancedAnalysis: EnhancedAnalysisResult | null, workf
   if (!hasReliableMetric(latest, "currentRatio")) notes.push("Current ratio was excluded from the main report because current assets and current liabilities were not available with medium/high confidence.");
   if (!workforceCapacityAnalysis?.workforceSize.estimatedEmployeeCount || workforceCapacityAnalysis.workforceSize.confidence === "low") notes.push("Employee count unavailable from reliable public sources; open position ratio was not calculated.");
   if (workforceCapacityAnalysis && workforceCapacityAnalysis.metrics.averageRequisitionAgeDays === null) notes.push("Job age unavailable because public posting dates were not available from the reviewed hiring sources.");
+  if (!enhancedAnalysis?.annualReportAnalysis.sourceDocument) notes.push("annual report not found from public website scan.");
   return notes;
+}
+
+function annualReportInsight(enhancedAnalysis: EnhancedAnalysisResult | null) {
+  const analysis = enhancedAnalysis?.annualReportAnalysis;
+  if (!analysis?.sourceDocument || !analysis.score) {
+    return {
+      status: "annual report not found from public website scan.",
+      score: null,
+      findings: [],
+      sourceUrl: null
+    };
+  }
+
+  return {
+    status: "Annual report found and analyzed.",
+    score: analysis.score.totalScore,
+    findings: analysis.score.findings,
+    sourceUrl: analysis.sourceDocument.url || null
+  };
 }
 
 function sourceForMetric(year: ReturnType<typeof latestFinancialYear>, metricName: Parameters<typeof metric>[1]) {

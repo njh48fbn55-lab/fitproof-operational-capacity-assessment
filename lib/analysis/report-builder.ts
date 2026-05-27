@@ -84,9 +84,16 @@ function strategyNarrative(enhancedAnalysis: EnhancedAnalysisResult) {
   const signals = [
     ...enhancedAnalysis.websiteAnalysis.strategicPriorities,
     ...enhancedAnalysis.websiteAnalysis.programExpansionSignals,
-    ...enhancedAnalysis.websiteAnalysis.operationalComplexitySignals
+    ...enhancedAnalysis.websiteAnalysis.operationalComplexitySignals,
+    ...enhancedAnalysis.annualReportAnalysis.signals.strategicPriorities,
+    ...enhancedAnalysis.annualReportAnalysis.signals.growthGoals,
+    ...enhancedAnalysis.annualReportAnalysis.signals.operationalWorkforceChallenges,
+    ...enhancedAnalysis.annualReportAnalysis.signals.technologyModernizationReferences
   ];
-  return signals.length ? signals.slice(0, 5).join(" ") : "No clear public strategy or expansion signals were available from the reviewed sources.";
+  const annualNote = enhancedAnalysis.annualReportAnalysis.score
+    ? `Annual report sophistication score: ${enhancedAnalysis.annualReportAnalysis.score.totalScore}/100.`
+    : "annual report not found from public website scan.";
+  return signals.length ? `${annualNote} ${signals.slice(0, 5).join(" ")}` : `No clear public strategy or expansion signals were available from the reviewed sources. ${annualNote}`;
 }
 
 function workforcePublicSignals(workforceCapacityAnalysis: WorkforceCapacityAnalysis) {

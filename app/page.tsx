@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import type { AuditExtraction } from "@/lib/nonprofit-viability/types";
 import {
   AssessmentResult,
   domains,
@@ -15,7 +16,15 @@ import {
   questions,
   Responses,
   scoreAssessment,
-  stageRecommendations
+  stageRecommendations,
+  systemCategories,
+  duplicateEntryOptions,
+  integrationOptions,
+  isSystemMappingResponse,
+  reportingConfidenceOptions,
+  sourceOfTruthOptions,
+  SystemCategory,
+  SystemMappingResponse
 } from "@/lib/operational-capacity";
 
 const emptyProfile: Profile = {
@@ -116,6 +125,7 @@ function Field({
 }
 
 function hasAnswer(question: Question, responses: Responses) {
+  if (question.optional) return true;
   const value = responses[question.id];
   const validOptions = new Set(getQuestionOptions(question).map((option) => option.label));
 
@@ -123,8 +133,23 @@ function hasAnswer(question: Question, responses: Responses) {
     return typeof value === "string" && value.trim().length > 0;
   }
 
+  if (question.type === "systems-map") {
+    if (!isSystemMappingResponse(value)) return false;
+    const toolsComplete = systemCategories.every((category) => {
+      const selected = value.tools?.[category.id];
+      if (!selected) return false;
+      return selected !== "Other" || Boolean(value.otherTools?.[category.id]?.trim());
+    });
+    const sourceComplete = value.sourceOfTruth && (value.sourceOfTruth !== "Other" || Boolean(value.sourceOfTruthOther?.trim()));
+    return Boolean(toolsComplete && value.integration && value.duplicateEntry?.length && sourceComplete && value.reportConfidence);
+  }
+
   if (question.type === "multi") {
-    if (Array.isArray(value)) return value.some((item) => validOptions.has(item));
+    if (Array.isArray(value)) {
+      const hasValid = value.some((item) => validOptions.has(item));
+      if (question.allowOther && value.includes("Other")) return hasValid && Boolean((responses[`${question.id}__other`] as string | undefined)?.trim());
+      return hasValid;
+    }
     return typeof value === "string" && validOptions.has(value);
   }
 
@@ -143,8 +168,11 @@ export default function Home() {
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [reportError, setReportError] = useState("");
   const [showSectionValidation, setShowSectionValidation] = useState(false);
+  const [activeHelpQuestion, setActiveHelpQuestion] = useState<Question | null>(null);
   const [analysisJobId, setAnalysisJobId] = useState("");
   const [analysisJobStatus, setAnalysisJobStatus] = useState<AnalysisJobStatus | null>(null);
+  const [uploadedAuditExtractions, setUploadedAuditExtractions] = useState<AuditExtraction[]>([]);
+  const [uploadNote, setUploadNote] = useState("");
   const result = useMemo(() => scoreAssessment(responses), [responses]);
   const completed = questions.filter((question) => hasAnswer(question, responses)).length;
   const progress = Math.round((completed / questions.length) * 100);
@@ -171,6 +199,35 @@ export default function Home() {
     setMultiAnswer(question, next);
   }
 
+  function setSystemMapping(updates: Partial<SystemMappingResponse>) {
+    const current = isSystemMappingResponse(responses["core-systems"]) ? responses["core-systems"] : {};
+    setResponses({ ...responses, "core-systems": { ...current, ...updates } });
+  }
+
+  function setSystemTool(category: SystemCategory, value: string) {
+    const current = isSystemMappingResponse(responses["core-systems"]) ? responses["core-systems"] : {};
+    setSystemMapping({
+      tools: { ...current.tools, [category]: value },
+      otherTools: value === "Other" ? current.otherTools : { ...current.otherTools, [category]: "" }
+    });
+  }
+
+  function setSystemOtherTool(category: SystemCategory, value: string) {
+    const current = isSystemMappingResponse(responses["core-systems"]) ? responses["core-systems"] : {};
+    setSystemMapping({ otherTools: { ...current.otherTools, [category]: value } });
+  }
+
+  function toggleDuplicateEntry(value: string) {
+    const current = isSystemMappingResponse(responses["core-systems"]) ? responses["core-systems"] : {};
+    const existing = current.duplicateEntry || [];
+    if (value === "No major duplicate entry" || value === "I don't know") {
+      setSystemMapping({ duplicateEntry: existing.includes(value) ? [] : [value] });
+      return;
+    }
+    const withoutExclusive = existing.filter((item) => item !== "No major duplicate entry" && item !== "I don't know");
+    setSystemMapping({ duplicateEntry: withoutExclusive.includes(value) ? withoutExclusive.filter((item) => item !== value) : [...withoutExclusive, value] });
+  }
+
   async function submitLead() {
     setView("report");
     setIsGeneratingReport(true);
@@ -182,7 +239,7 @@ export default function Home() {
       const response = await fetch("/api/analysis/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lead, profile, responses, result })
+        body: JSON.stringify({ lead, profile, responses, result, uploadedAuditExtractions })
       });
 
       if (!response.ok) {
@@ -201,6 +258,25 @@ export default function Home() {
       console.error(error);
       setReportError("Enhanced analysis could not be started. Please try again.");
       setIsGeneratingReport(false);
+    }
+  }
+
+  async function uploadAnnualReport(file: File | null) {
+    if (!file) return;
+    setUploadNote("Uploading and reading the document...");
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("organizationName", profile.organization || "organization");
+
+    try {
+      const response = await fetch("/api/documents/upload", { method: "POST", body: formData });
+      if (!response.ok) throw new Error("Upload failed.");
+      const data = await response.json();
+      setUploadedAuditExtractions((current) => [...current, data.extraction]);
+      setUploadNote("Uploaded report will be prioritized in the analysis.");
+    } catch (error) {
+      console.error(error);
+      setUploadNote("The report could not be uploaded. You can continue; the public website scan will still run.");
     }
   }
 
@@ -368,6 +444,17 @@ export default function Home() {
                     invalid={showSectionValidation && !profile.websiteUrl.trim()}
                     onChange={(value) => setProfile({ ...profile, websiteUrl: value })}
                   />
+                  <label className="grid gap-1.5 md:col-span-2">
+                    <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate">Upload annual report or audit PDF (optional)</span>
+                    <input
+                      type="file"
+                      accept="application/pdf,.pdf"
+                      onChange={(event) => void uploadAnnualReport(event.target.files?.[0] || null)}
+                      className="min-h-11 rounded border border-line bg-white px-3 py-2 text-sm text-ink outline-none transition file:mr-3 file:rounded file:border-0 file:bg-blacktop file:px-3 file:py-1.5 file:text-sm file:font-bold file:text-fitgreen focus:border-fitgreen focus:ring-4 focus:ring-fitgreen/20"
+                    />
+                    {uploadNote && <span className="text-xs font-semibold text-slate">{uploadNote}</span>}
+                    {uploadedAuditExtractions.length > 0 && <span className="text-xs font-bold uppercase tracking-[0.12em] text-fitgreen">{uploadedAuditExtractions.length} document uploaded</span>}
+                  </label>
                 </div>
               ) : (
                 <div className="grid gap-3 md:grid-cols-2">
@@ -421,13 +508,39 @@ export default function Home() {
 
                     return (
                       <div key={question.id} className={`rounded border bg-panel p-3 ${missing ? "border-red-300" : "border-line"}`}>
-                        <p className="text-sm font-semibold leading-6">
-                          <span className="mr-2 inline-grid size-6 place-items-center rounded bg-blacktop text-xs font-bold text-fitgreen">
-                            {questionNumbers[question.id]}
-                          </span>
-                          {question.prompt}
-                        </p>
-                        {question.type === "text" ? (
+                        <div className="flex items-start justify-between gap-3">
+                          <p className="text-sm font-semibold leading-6">
+                            <span className="mr-2 inline-grid size-6 place-items-center rounded bg-blacktop text-xs font-bold text-fitgreen">
+                              {questionNumbers[question.id]}
+                            </span>
+                            {question.prompt}
+                            {question.optional && <span className="ml-2 text-xs font-bold uppercase tracking-[0.12em] text-slate">Optional</span>}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => setActiveHelpQuestion(question)}
+                            className="grid size-8 shrink-0 place-items-center rounded-full border border-line bg-white text-sm font-black text-slate transition hover:border-fitgreen hover:text-fitgreen"
+                            aria-label={`Help for question ${questionNumbers[question.id]}`}
+                          >
+                            ?
+                          </button>
+                        </div>
+                        {question.helperText && <p className="mt-2 text-xs leading-5 text-slate">{question.helperText}</p>}
+                        {question.type === "systems-map" ? (
+                          <SystemsMappingInput
+                            value={isSystemMappingResponse(responses["core-systems"]) ? responses["core-systems"] : {}}
+                            missing={missing}
+                            fieldStateClass={fieldStateClass}
+                            onToolChange={setSystemTool}
+                            onOtherToolChange={setSystemOtherTool}
+                            onIntegrationChange={(value) => setSystemMapping({ integration: value })}
+                            onDuplicateToggle={toggleDuplicateEntry}
+                            onDuplicateOtherChange={(value) => setSystemMapping({ duplicateEntryOther: value })}
+                            onSourceOfTruthChange={(value) => setSystemMapping({ sourceOfTruth: value })}
+                            onSourceOfTruthOtherChange={(value) => setSystemMapping({ sourceOfTruthOther: value })}
+                            onReportConfidenceChange={(value) => setSystemMapping({ reportConfidence: value })}
+                          />
+                        ) : question.type === "text" ? (
                           <textarea
                             value={(responses[question.id] as string) || ""}
                             onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setAnswer(question, event.target.value)}
@@ -480,6 +593,14 @@ export default function Home() {
                                     </button>
                                   </div>
                                 )}
+                                {question.allowOther && Array.isArray(responses[question.id]) && (responses[question.id] as string[]).includes("Other") && (
+                                  <input
+                                    value={(responses[`${question.id}__other`] as string) || ""}
+                                    onChange={(event) => setResponses({ ...responses, [`${question.id}__other`]: event.target.value })}
+                                    placeholder="Please name the workflow."
+                                    className={`mt-3 min-h-11 w-full rounded border bg-white px-3 py-2 text-sm outline-none focus:ring-4 ${fieldStateClass}`}
+                                  />
+                                )}
                               </div>
                             ) : (
                               <select
@@ -527,6 +648,10 @@ export default function Home() {
                 </div>
               </section>
             </div>
+
+            {activeHelpQuestion && (
+              <QuestionHelpModal question={activeHelpQuestion} onClose={() => setActiveHelpQuestion(null)} />
+            )}
           </div>
         )}
 
@@ -549,6 +674,157 @@ export default function Home() {
       </div>
     </main>
   );
+}
+
+function SystemsMappingInput({
+  value,
+  missing,
+  fieldStateClass,
+  onToolChange,
+  onOtherToolChange,
+  onIntegrationChange,
+  onDuplicateToggle,
+  onDuplicateOtherChange,
+  onSourceOfTruthChange,
+  onSourceOfTruthOtherChange,
+  onReportConfidenceChange
+}: {
+  value: SystemMappingResponse;
+  missing: boolean;
+  fieldStateClass: string;
+  onToolChange: (category: SystemCategory, value: string) => void;
+  onOtherToolChange: (category: SystemCategory, value: string) => void;
+  onIntegrationChange: (value: string) => void;
+  onDuplicateToggle: (value: string) => void;
+  onDuplicateOtherChange: (value: string) => void;
+  onSourceOfTruthChange: (value: string) => void;
+  onSourceOfTruthOtherChange: (value: string) => void;
+  onReportConfidenceChange: (value: string) => void;
+}) {
+  return (
+    <div className="mt-3 grid gap-4">
+      <div className="grid gap-3 lg:grid-cols-5">
+        {systemCategories.map((category) => {
+          const selected = value.tools?.[category.id] || "";
+          return (
+            <label key={category.id} className="grid gap-1.5">
+              <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate">{category.label}</span>
+              <select
+                value={selected}
+                onChange={(event) => onToolChange(category.id, event.target.value)}
+                aria-invalid={missing && !selected}
+                className={`min-h-11 rounded border bg-white px-3 py-2 text-sm font-semibold text-ink outline-none transition focus:ring-4 ${fieldStateClass}`}
+              >
+                <option value="">Select a system</option>
+                {category.options.map((option) => <option key={option} value={option}>{option}</option>)}
+              </select>
+              {selected === "Other" && (
+                <input
+                  value={value.otherTools?.[category.id] || ""}
+                  onChange={(event) => onOtherToolChange(category.id, event.target.value)}
+                  placeholder="Please name the system."
+                  className={`min-h-10 rounded border bg-white px-3 py-2 text-sm outline-none focus:ring-4 ${fieldStateClass}`}
+                />
+              )}
+            </label>
+          );
+        })}
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        <label className="grid gap-1.5">
+          <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate">Do these systems share data automatically, manually, or not at all?</span>
+          <select value={value.integration || ""} onChange={(event) => onIntegrationChange(event.target.value)} className={`min-h-11 rounded border bg-white px-3 py-2 text-sm font-semibold outline-none focus:ring-4 ${fieldStateClass}`}>
+            <option value="">Select a response</option>
+            {integrationOptions.map((option) => <option key={option.label} value={option.label}>{option.label}</option>)}
+          </select>
+        </label>
+        <label className="grid gap-1.5">
+          <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate">Which system is considered the source of truth?</span>
+          <select value={value.sourceOfTruth || ""} onChange={(event) => onSourceOfTruthChange(event.target.value)} className={`min-h-11 rounded border bg-white px-3 py-2 text-sm font-semibold outline-none focus:ring-4 ${fieldStateClass}`}>
+            <option value="">Select a response</option>
+            {sourceOfTruthOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+          </select>
+          {value.sourceOfTruth === "Other" && (
+            <input
+              value={value.sourceOfTruthOther || ""}
+              onChange={(event) => onSourceOfTruthOtherChange(event.target.value)}
+              placeholder="Please name the source of truth."
+              className={`min-h-10 rounded border bg-white px-3 py-2 text-sm outline-none focus:ring-4 ${fieldStateClass}`}
+            />
+          )}
+        </label>
+      </div>
+
+      <div className="grid gap-2">
+        <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate">Where does duplicate data entry most often occur?</span>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {duplicateEntryOptions.map((option) => (
+            <label key={option} className="flex min-h-10 cursor-pointer items-center gap-2 rounded border border-line bg-white px-3 py-2 text-sm font-semibold hover:border-fitgreen">
+              <input
+                type="checkbox"
+                checked={(value.duplicateEntry || []).includes(option)}
+                onChange={() => onDuplicateToggle(option)}
+                className="size-4 accent-fitgreen"
+              />
+              <span>{option}</span>
+            </label>
+          ))}
+        </div>
+        {(value.duplicateEntry || []).includes("Other") && (
+          <input
+            value={value.duplicateEntryOther || ""}
+            onChange={(event) => onDuplicateOtherChange(event.target.value)}
+            placeholder="Please describe where duplicate entry occurs."
+            className={`min-h-10 rounded border bg-white px-3 py-2 text-sm outline-none focus:ring-4 ${fieldStateClass}`}
+          />
+        )}
+      </div>
+
+      <label className="grid gap-1.5">
+        <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate">How confident are you that leadership can trust reports generated from these systems?</span>
+        <select value={value.reportConfidence || ""} onChange={(event) => onReportConfidenceChange(event.target.value)} className={`min-h-11 rounded border bg-white px-3 py-2 text-sm font-semibold outline-none focus:ring-4 ${fieldStateClass}`}>
+          <option value="">Select a response</option>
+          {reportingConfidenceOptions.map((option) => <option key={option.label} value={option.label}>{option.label}</option>)}
+        </select>
+      </label>
+    </div>
+  );
+}
+
+function QuestionHelpModal({ question, onClose }: { question: Question; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 px-4 py-6 print:hidden" role="dialog" aria-modal="true">
+      <div className="w-full max-w-lg rounded border border-line bg-white p-5 shadow-soft">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.16em] text-fitgreen">Question help</p>
+            <h3 className="mt-1 text-lg font-bold">{question.prompt}</h3>
+          </div>
+          <button type="button" onClick={onClose} className="grid size-9 place-items-center rounded border border-line text-sm font-bold hover:border-fitgreen">
+            X
+          </button>
+        </div>
+        <p className="mt-3 text-sm leading-6 text-slate">{question.helpText || defaultHelpText(question)}</p>
+        <button type="button" onClick={onClose} className="mt-4 min-h-10 rounded bg-blacktop px-4 text-sm font-bold text-fitgreen transition hover:bg-fitgreen hover:text-blacktop">
+          Got it
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function defaultHelpText(question: Question) {
+  if (question.type === "systems-map") {
+    return "Choose the tools your team actually uses, then describe how data moves between them. Think about whether leaders can trust reports without manual cleanup or reconciliation.";
+  }
+  if (question.type === "multi") {
+    return "Select every option that creates real friction for your team. Focus on recurring work that slows people down, creates rework, or makes reporting and handoffs harder.";
+  }
+  if (question.type === "text") {
+    return "Add context only when it explains something important about your operations. Specific examples are more useful than broad statements. Unsure, none, or not-applicable answers are ignored.";
+  }
+  return "Answer based on the typical experience across the organization, not the best or worst single example. Consider time, manual work, reliability, handoffs, and how easily leaders can make decisions from the information available.";
 }
 
 function LeadCapture({
@@ -634,6 +910,60 @@ function Report({
   const openConstraint = getOpenConstraint(responses);
   const date = new Intl.DateTimeFormat("en", { month: "long", day: "numeric", year: "numeric" }).format(new Date());
   const reportId = `FP-OCA-${date.replace(/[^A-Za-z0-9]/g, "").toUpperCase()}`;
+  const [pdfExportError, setPdfExportError] = useState("");
+
+  async function downloadPdfReport() {
+    setPdfExportError("");
+    const reportElement = document.getElementById("generated-report");
+    if (!reportElement) {
+      setPdfExportError("PDF export could not find the report content. Please use the Word download as a fallback.");
+      return;
+    }
+
+    const organization = profile.organization || "Organization";
+    const fileName = `${organization.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "fitproof"}-operational-capacity-report.pdf`;
+    const html = `
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>${escapeHtml(organization)} Operational Capacity Report</title>
+          <style>
+            body { margin: 0; font-family: Arial, sans-serif; color: #111111; background: #ffffff; }
+            #generated-report { max-width: none !important; border: 0 !important; box-shadow: none !important; }
+            button, .print\\:hidden { display: none !important; }
+            .bg-fitgreen { background-color: #67a629 !important; }
+            .text-fitgreen { color: #67a629 !important; }
+            footer { margin-top: 24px; border-top: 1px solid #d8ddd3; padding-top: 10px; color: #596057; font-size: 11px; }
+          </style>
+        </head>
+        <body>${reportElement.outerHTML}<footer>FitProof | ${escapeHtml(date)} | ${escapeHtml(reportId)}</footer></body>
+      </html>
+    `;
+
+    try {
+      const response = await fetch("/api/reports/export/pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ html, fileName })
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "PDF export failed.");
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 500);
+    } catch (error) {
+      setPdfExportError(error instanceof Error ? error.message : "PDF export failed. Please use the Word download as a fallback.");
+    }
+  }
 
   function downloadWordReport() {
     const organization = profile.organization || "Organization";
@@ -713,6 +1043,7 @@ function Report({
                 <h2>Primary Operational Risks</h2><ul>${listItems(intelligence.primaryOperationalRisks)}</ul>
                 <h2>Growth Constraints</h2><ul>${listItems(intelligence.growthConstraints)}</ul>
                 <h2>Recommended Priorities</h2><ul>${listItems(intelligence.recommendedPriorities)}</ul>
+                <h2>Annual Report Analysis</h2><p>${escapeHtml(intelligence.annualReportInsight.status)}</p>${intelligence.annualReportInsight.score === null ? "" : `<p><strong>Annual Report Sophistication Score:</strong> ${escapeHtml(intelligence.annualReportInsight.score)}/100</p>`}<ul>${listItems(intelligence.annualReportInsight.findings)}</ul>
                 <h2>Supporting Source Appendix</h2>
                 <table><thead><tr><th>Metric</th><th>Value</th><th>Source</th></tr></thead><tbody>${intelligence.supportingMetrics.map((item) => `<tr><td>${escapeHtml(item.label)}</td><td>${escapeHtml(item.value)}</td><td>${escapeHtml(item.source)}</td></tr>`).join("")}</tbody></table>
                 ${intelligence.workforceExtractionDebug ? `<h2>Workforce Extraction Debug</h2><p>Careers page found: ${escapeHtml(intelligence.workforceExtractionDebug.careersPageFound || "None")}</p><p>ATS platform detected: ${escapeHtml(intelligence.workforceExtractionDebug.atsPlatformDetected || "None")}</p><p>Postings extracted: ${escapeHtml(intelligence.workforceExtractionDebug.postingsExtracted)}; after deduplication: ${escapeHtml(intelligence.workforceExtractionDebug.postingsAfterDeduplication)}</p><ul>${listItems(intelligence.workforceExtractionDebug.sourceUrlsCrawled)}</ul>` : ""}
@@ -809,10 +1140,22 @@ function Report({
             {profile.websiteUrl && <p className="mt-1 text-xs font-bold uppercase tracking-[0.12em] text-slate">Website reviewed: {profile.websiteUrl}</p>}
           </div>
         </div>
-        <button type="button" onClick={downloadWordReport} className="min-h-11 rounded bg-blacktop px-4 text-sm font-bold text-fitgreen transition hover:bg-fitgreen hover:text-blacktop print:hidden">
-          Download Word Report
-        </button>
+        <div className="flex flex-col gap-2 print:hidden">
+          <button type="button" onClick={downloadPdfReport} className="min-h-11 rounded bg-fitgreen px-4 text-sm font-bold text-blacktop transition hover:bg-blacktop hover:text-fitgreen">
+            Download Branded PDF
+          </button>
+          <button type="button" onClick={downloadWordReport} className="min-h-11 rounded bg-blacktop px-4 text-sm font-bold text-fitgreen transition hover:bg-fitgreen hover:text-blacktop">
+            Download Branded Word Document
+          </button>
+        </div>
       </div>
+
+      {pdfExportError && (
+        <section className="rounded border border-red-200 bg-red-50 p-4 print:hidden">
+          <h3 className="text-lg font-bold text-red-800">PDF Export Note</h3>
+          <p className="mt-2 text-sm leading-6 text-red-700">{pdfExportError}</p>
+        </section>
+      )}
 
       {isGeneratingReport && (
         <section className="rounded border border-fitgreen/40 bg-fitgreen/10 p-4">
@@ -1192,6 +1535,20 @@ function OperationalIntelligenceView({
         <ListPanel title="Primary Operational Risks" items={intelligence.primaryOperationalRisks} />
         <ListPanel title="Address Growth Constraints" items={intelligence.growthConstraints} />
         <ListPanel title="Recommended Priorities" items={intelligence.recommendedPriorities} />
+      </section>
+
+      <section className="rounded border border-line bg-white p-4">
+        <h3 className="text-lg font-bold">Annual Report Analysis</h3>
+        <p className="mt-2 text-sm leading-6 text-slate">{intelligence.annualReportInsight.status}</p>
+        {intelligence.annualReportInsight.score !== null && (
+          <p className="mt-2 text-sm font-bold">Annual Report Sophistication Score: {intelligence.annualReportInsight.score}/100</p>
+        )}
+        {intelligence.annualReportInsight.findings.length > 0 && (
+          <ul className="mt-3 grid gap-2 text-sm leading-6 text-slate">
+            {intelligence.annualReportInsight.findings.map((finding) => <li key={finding}>{finding}</li>)}
+          </ul>
+        )}
+        {intelligence.annualReportInsight.sourceUrl && <p className="mt-3 text-xs text-slate">Source: {intelligence.annualReportInsight.sourceUrl}</p>}
       </section>
 
       <section className="grid gap-4 md:grid-cols-2">

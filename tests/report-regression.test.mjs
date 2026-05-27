@@ -5,6 +5,8 @@ import test from "node:test";
 const page = readFileSync(new URL("../app/page.tsx", import.meta.url), "utf8");
 const synthesis = readFileSync(new URL("../lib/operational-intelligence/report-synthesis-service.ts", import.meta.url), "utf8");
 const crawler = readFileSync(new URL("../lib/workforce-capacity/careers-crawler-service.ts", import.meta.url), "utf8");
+const capacity = readFileSync(new URL("../lib/operational-capacity.ts", import.meta.url), "utf8");
+const annualReport = readFileSync(new URL("../lib/nonprofit-viability/annual-report-service.ts", import.meta.url), "utf8");
 
 test("report no longer renders the legacy duplicate executive summary block for intelligence reports", () => {
   assert.equal(page.includes("<h2>Executive Summary</h2>\\n          <p>${escapeHtml(summary)}</p>"), false);
@@ -37,4 +39,32 @@ test("workforce count can use ATS extraction and exposes debug counts", () => {
 test("executive summary avoids raw recommendation labels", () => {
   assert.equal(synthesis.includes("The improvement path is to focus on ${priorities"), false);
   assert.match(synthesis, /naturalList\(priorities\.slice\(0, 3\)\)/);
+});
+
+test("context section is removed and demand is scored under mission strain", () => {
+  assert.equal(capacity.includes('title: "Operational Complexity Context"'), false);
+  assert.match(capacity, /id: "demand-change", domainId: "sustainability"/);
+});
+
+test("question 31 restructuring prompt is removed while legacy responses remain harmless", () => {
+  assert.equal(capacity.includes('id: "restructuring-risk", domainId: "sustainability"'), false);
+  assert.match(capacity, /responses\["restructuring-risk"\]/);
+});
+
+test("core systems uses two-stage tool mapping and does not score vendor choice directly", () => {
+  assert.match(capacity, /type: "systems-map"/);
+  assert.match(page, /function SystemsMappingInput/);
+  assert.match(capacity, /riskForSystemMapping/);
+  assert.equal(capacity.includes("Blackbaud Raiser’s Edge NXT\", risk"), false);
+});
+
+test("low-information free text is ignored for additional context", () => {
+  assert.match(capacity, /isMeaningfulActionableText/);
+  assert.match(capacity, /not sure\|unsure\|n\\\/a\|na\|none/);
+});
+
+test("annual report service scans public website reports and reports not found clearly", () => {
+  assert.match(annualReport, /annual report not found from public website scan/);
+  assert.match(annualReport, /AnnualReportSophisticationScore/);
+  assert.match(synthesis, /annualReportInsight/);
 });

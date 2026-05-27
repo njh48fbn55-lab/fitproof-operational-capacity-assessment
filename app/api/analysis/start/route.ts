@@ -14,7 +14,8 @@ export async function POST(request: Request) {
       profile: body.profile,
       lead: body.lead,
       responses: body.responses,
-      result: body.result
+      result: body.result,
+      uploadedAuditExtractions: body.uploadedAuditExtractions
     });
     const job = await createAnalysisJob(assessment);
     enqueueAnalysisJob(job.id);

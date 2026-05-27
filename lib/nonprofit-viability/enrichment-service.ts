@@ -1,4 +1,5 @@
 import { extractAuditFieldsFromSourceUrl, findAuditDocumentsOnWebsite } from "./audit-document-service";
+import { annualReportService } from "./annual-report-service";
 import { financialTrendService } from "./financial-trend-service";
 import { irs990Service } from "./irs990-service";
 import { nonprofitSearchService } from "./nonprofit-search-service";
@@ -33,10 +34,11 @@ export async function nonprofitEnrichmentService(request: EnhancedAnalysisReques
     state: organization.state || request.state,
     website: organization.website || request.website
   };
-  const [form990Years, propublicaFallback, websiteAnalysis, websiteAuditSources, registryResults, publicRecords] = await Promise.all([
+  const [form990Years, propublicaFallback, websiteAnalysis, annualReportAnalysis, websiteAuditSources, registryResults, publicRecords] = await Promise.all([
     safeSource("IRS 990 enrichment", irs990Service(enrichedRequest), []),
     safeSource("ProPublica enrichment", propublicaService(enrichedRequest), { sources: [], financialYears: [] }),
     safeSource("website analysis", websiteAnalysisService(enrichedRequest.website), emptyWebsiteAnalysis()),
+    safeSource("annual report analysis", annualReportService(enrichedRequest.website), emptyAnnualReportAnalysis()),
     safeSource("website audit discovery", findAuditDocumentsOnWebsite(enrichedRequest.website), []),
     safeSource("state registry search", stateRegistryService(enrichedRequest.name, enrichedRequest.state, request.includeStateRegistrySearch ?? true), []),
     safeSource("public records search", publicRecordsService(
@@ -49,6 +51,7 @@ export async function nonprofitEnrichmentService(request: EnhancedAnalysisReques
   [
     ...organization.sources,
     ...websiteAnalysis.sources,
+    ...(annualReportAnalysis.sourceDocument ? [annualReportAnalysis.sourceDocument] : []),
     ...websiteAuditSources,
     ...registryResults.flatMap((result) => result.sources),
     ...propublicaFallback.sources
@@ -92,6 +95,7 @@ export async function nonprofitEnrichmentService(request: EnhancedAnalysisReques
     organization,
     sources,
     websiteAnalysis,
+    annualReportAnalysis,
     registryResults,
     publicRecords,
     financialYears,
@@ -101,6 +105,28 @@ export async function nonprofitEnrichmentService(request: EnhancedAnalysisReques
 
   await writeJsonRecord("enhanced-analyses", `${makeId("analysis", organization.ein || organization.legalName || "organization")}.json`, result).catch(() => undefined);
   return result;
+}
+
+function emptyAnnualReportAnalysis() {
+  return {
+    status: "not_found" as const,
+    sourceDocument: null,
+    score: null,
+    signals: {
+      strategicPriorities: [],
+      measurableOutcomes: [],
+      programPerformanceMetrics: [],
+      revenueFundingNarrative: [],
+      donorFunderTransparency: [],
+      leadershipBoardTransparency: [],
+      dataDashboardReferences: [],
+      multiYearTrendVisibility: [],
+      operationalWorkforceChallenges: [],
+      growthGoals: [],
+      technologyModernizationReferences: []
+    },
+    notes: ["annual report not found from public website scan."]
+  };
 }
 
 async function safeSource<T>(label: string, promise: Promise<T>, fallback: T): Promise<T> {

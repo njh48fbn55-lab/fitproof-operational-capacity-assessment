@@ -108,5 +108,11 @@ export type OperationalIntelligenceReport = {
   recommendedPriorities: string[];
   supportingMetrics: SupportingMetric[];
   workforceExtractionDebug: WorkforceExtractionDebug | null;
+  annualReportInsight: {
+    status: string;
+    score: number | null;
+    findings: string[];
+    sourceUrl: string | null;
+  };
   dataQualityNotes: string[];
 };

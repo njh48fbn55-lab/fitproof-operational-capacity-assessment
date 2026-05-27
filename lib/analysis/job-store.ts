@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { GeneratedExecutiveReport, Profile, Responses, AssessmentResult, Lead } from "@/lib/operational-capacity";
-import { EnhancedAnalysisResult } from "@/lib/nonprofit-viability/types";
+import { AuditExtraction, EnhancedAnalysisResult } from "@/lib/nonprofit-viability/types";
 import { slugify } from "@/lib/nonprofit-viability/utils";
 import { WorkforceCapacityAnalysis } from "@/lib/workforce-capacity/types";
 import { AnalysisAssessment, AnalysisJob, AnalysisJobResults, AnalysisStep } from "./types";
@@ -18,12 +18,14 @@ export async function createAssessmentRecord({
   profile,
   lead,
   responses,
-  result
+  result,
+  uploadedAuditExtractions
 }: {
   profile: Profile;
   lead?: Lead;
   responses: Responses;
   result: AssessmentResult;
+  uploadedAuditExtractions?: AuditExtraction[];
 }) {
   const now = new Date().toISOString();
   const assessment: AnalysisAssessment = {
@@ -32,6 +34,7 @@ export async function createAssessmentRecord({
     lead,
     responses,
     result,
+    uploadedAuditExtractions,
     createdAt: now
   };
 

@@ -33,6 +33,7 @@ export function organizationalHealthScoreService({
   const expenseGrowth = averageMetric(enhancedAnalysis?.financialYears, "expenseGrowth");
   const registryRisks = enhancedAnalysis?.registryResults.filter((item) => /delinquent|suspend|not|revoked/i.test(item.status || "")).length || 0;
   const publicRisks = enhancedAnalysis?.publicRecords.filter((item) => ["litigation", "enforcement"].includes(item.signalType)).length || 0;
+  const annualReportScore = enhancedAnalysis?.annualReportAnalysis.score?.totalScore ?? null;
 
   const categoryScores: OrganizationalHealthScore["categoryScores"] = {
     "Financial Stability": clampScore(
@@ -42,10 +43,10 @@ export function organizationalHealthScoreService({
         3
     ),
     "Workforce Capacity": workforceCapacityAnalysis ? clampScore(100 - workforceCapacityAnalysis.riskScore.score * 0.75) : domainHealth(result, "staffing"),
-    "Revenue Operations": clampScore((domainHealth(result, "visibility") + domainHealth(result, "context") + scoreRevenueTrend(revenueGrowth, expenseGrowth)) / 3),
+    "Revenue Operations": clampScore((domainHealth(result, "visibility") + domainHealth(result, "sustainability") + scoreRevenueTrend(revenueGrowth, expenseGrowth)) / 3),
     "Governance & Compliance": clampScore(90 - registryRisks * 18 - publicRisks * 20),
     "Technology & Systems": domainHealth(result, "systems"),
-    "Strategic Clarity": clampScore((domainHealth(result, "sustainability") + strategySignalScore(enhancedAnalysis)) / 2),
+    "Strategic Clarity": clampScore((domainHealth(result, "sustainability") + strategySignalScore(enhancedAnalysis) + (annualReportScore ?? 50)) / 3),
     "AI/Automation Readiness": clampScore((domainHealth(result, "systems") + domainHealth(result, "process") + domainHealth(result, "knowledge")) / 3)
   };
 

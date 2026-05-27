@@ -49,7 +49,8 @@ async function runAnalysisJob(jobId: string) {
       name: assessment.profile.organization,
       website: assessment.profile.websiteUrl,
       includePublicRecordsSearch: true,
-      includeStateRegistrySearch: true
+      includeStateRegistrySearch: true,
+      uploadedAuditExtractions: assessment.uploadedAuditExtractions || []
     });
 
     await updateJobStep(jobId, "parsing_documents", 42);
