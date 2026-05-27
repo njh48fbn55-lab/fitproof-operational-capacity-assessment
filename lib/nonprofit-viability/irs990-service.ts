@@ -1,3 +1,4 @@
+import { inflateRawSync } from "node:zlib";
 import { ConfidenceLevel, FinancialMetric, FinancialYear, NonprofitSearchInput } from "./types";
 import { metricLabel, normalizeEin, parseCsv, writeJsonRecord } from "./utils";
 
@@ -21,7 +22,7 @@ export async function irs990Service(input: NonprofitSearchInput): Promise<Financ
   const years = (
     await Promise.all(
       filings.slice(0, 5).map(async (filing) => {
-        const xml = await fetchIrsXml(filing.objectId);
+        const xml = await fetchIrsXml(filing);
         return xml ? financialYearFromIrsXml(xml, filing) : null;
       })
     )
@@ -77,7 +78,8 @@ async function fetchIrsIndexForYear(year: number): Promise<IrsIndexRow[]> {
     .filter((record) => record.ein && record.objectId);
 }
 
-async function fetchIrsXml(objectId: string) {
+async function fetchIrsXml(filing: IrsIndexRow) {
+  const objectId = filing.objectId;
   const urls = [
     `https://s3.amazonaws.com/irs-form-990/${objectId}_public.xml`,
     `https://s3.us-east-1.amazonaws.com/irs-form-990/${objectId}_public.xml`
@@ -88,6 +90,92 @@ async function fetchIrsXml(objectId: string) {
     if (response?.ok) return response.text();
   }
 
+  const xmlFromZip = await fetchIrsXmlFromTeosZip(filing);
+  if (xmlFromZip) return xmlFromZip;
+
+  return null;
+}
+
+async function fetchIrsXmlFromTeosZip(filing: IrsIndexRow) {
+  const zipUrls = candidateZipUrls(filing.processingYear);
+
+  for (const url of zipUrls) {
+    const response = await fetch(url, { headers: { "User-Agent": USER_AGENT } }).catch(() => null);
+    if (!response?.ok) continue;
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const xml = extractXmlFromZip(buffer, filing.objectId);
+    if (xml) return xml;
+  }
+
+  return null;
+}
+
+function candidateZipUrls(year: number) {
+  const urls: string[] = [];
+  const suffixes = ["A", "B", "C", "D"];
+
+  for (let month = 1; month <= 12; month += 1) {
+    for (const suffix of suffixes) {
+      urls.push(`https://apps.irs.gov/pub/epostcard/990/xml/${year}/${year}_TEOS_XML_${String(month).padStart(2, "0")}${suffix}.zip`);
+    }
+  }
+
+  if (year === 2020) {
+    urls.push(`https://apps.irs.gov/pub/epostcard/990/xml/2020/2020_TEOS_XML_CT1.zip`);
+    for (let index = 1; index <= 8; index += 1) {
+      urls.push(`https://apps.irs.gov/pub/epostcard/990/xml/2020/download990xml_2020_${index}.zip`);
+    }
+  }
+
+  return urls;
+}
+
+function extractXmlFromZip(buffer: Buffer, objectId: string) {
+  const endOffset = findEndOfCentralDirectory(buffer);
+  if (endOffset < 0) return null;
+
+  const centralDirectorySize = buffer.readUInt32LE(endOffset + 12);
+  const centralDirectoryOffset = buffer.readUInt32LE(endOffset + 16);
+  let offset = centralDirectoryOffset;
+  const end = centralDirectoryOffset + centralDirectorySize;
+
+  while (offset < end && buffer.readUInt32LE(offset) === 0x02014b50) {
+    const compressionMethod = buffer.readUInt16LE(offset + 10);
+    const compressedSize = buffer.readUInt32LE(offset + 20);
+    const fileNameLength = buffer.readUInt16LE(offset + 28);
+    const extraLength = buffer.readUInt16LE(offset + 30);
+    const commentLength = buffer.readUInt16LE(offset + 32);
+    const localHeaderOffset = buffer.readUInt32LE(offset + 42);
+    const fileName = buffer.slice(offset + 46, offset + 46 + fileNameLength).toString("utf8");
+
+    if (fileName.includes(objectId) && fileName.toLowerCase().endsWith(".xml")) {
+      return readZipEntry(buffer, localHeaderOffset, compressedSize, compressionMethod);
+    }
+
+    offset += 46 + fileNameLength + extraLength + commentLength;
+  }
+
+  return null;
+}
+
+function findEndOfCentralDirectory(buffer: Buffer) {
+  const minOffset = Math.max(0, buffer.length - 65557);
+  for (let offset = buffer.length - 22; offset >= minOffset; offset -= 1) {
+    if (buffer.readUInt32LE(offset) === 0x06054b50) return offset;
+  }
+  return -1;
+}
+
+function readZipEntry(buffer: Buffer, localHeaderOffset: number, compressedSize: number, compressionMethod: number) {
+  if (buffer.readUInt32LE(localHeaderOffset) !== 0x04034b50) return null;
+  const fileNameLength = buffer.readUInt16LE(localHeaderOffset + 26);
+  const extraLength = buffer.readUInt16LE(localHeaderOffset + 28);
+  const dataStart = localHeaderOffset + 30 + fileNameLength + extraLength;
+  const compressed = buffer.slice(dataStart, dataStart + compressedSize);
+
+  if (compressionMethod === 0) return compressed.toString("utf8");
+  if (compressionMethod === 8) return inflateRawSync(compressed).toString("utf8");
   return null;
 }
 
