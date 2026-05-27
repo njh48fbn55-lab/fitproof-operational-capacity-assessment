@@ -81,6 +81,8 @@ export type GeneratedExecutiveReport = {
   organizationSnapshot: string;
   strainDiagnosis: string;
   missionImplications: string;
+  financialAnalysis?: string;
+  strategicSignals?: string;
   primaryStrainDrivers?: PrimaryStrainDriver[];
   topRisks: string[];
   recommendations: string[];
@@ -116,7 +118,7 @@ const easePositive = [
 ];
 
 export const domains: Domain[] = [
-  { id: "context", title: "Operational Complexity Context", shortTitle: "Context", weight: 10, purpose: "Demand, scale, revenue stream complexity, and pressure on the operating model." },
+  { id: "context", title: "Operational Complexity Context", shortTitle: "Context", weight: 10, purpose: "Demand pressure and public financial context pulled from available filings, reports, and website sources." },
   { id: "systems", title: "Systems & Infrastructure", shortTitle: "Systems", weight: 16, purpose: "Integration, data reliability, system fragmentation, and manual workarounds." },
   { id: "process", title: "Process & Workflow Stability", shortTitle: "Process", weight: 14, purpose: "Documentation, handoffs, repeatability, and workflow scalability." },
   { id: "staffing", title: "Staffing Capacity Indicators", shortTitle: "Staffing", weight: 16, purpose: "Overtime, firefighting, bottlenecks, responsiveness, role coverage, and turnover." },
@@ -126,9 +128,6 @@ export const domains: Domain[] = [
 ];
 
 export const questions: Question[] = [
-  { id: "annual-revenue", domainId: "context", prompt: "Annual revenue", type: "single", options: [{ label: "<$1M", risk: 0 }, { label: "$1M-$5M", risk: 1 }, { label: "$5M-$25M", risk: 2 }, { label: "$25M-$100M", risk: 3 }, { label: "$100M+", risk: 4 }] },
-  { id: "full-time-employees", domainId: "context", prompt: "Full-time employees", type: "single", options: [{ label: "1-10", risk: 0 }, { label: "11-50", risk: 1 }, { label: "51-200", risk: 2 }, { label: "201-500", risk: 3 }, { label: "500+", risk: 4 }] },
-  { id: "revenue-streams", domainId: "context", prompt: "Revenue streams managed", type: "multi", options: ["Donations", "Grants", "Government contracts", "Earned revenue", "Memberships", "Events", "Sponsorships", "Other"].map((label) => ({ label, risk: 1 })) },
   { id: "demand-change", domainId: "context", prompt: "Demand change over the past 12 months", type: "single", options: [{ label: "Increased significantly", risk: 4 }, { label: "Increased moderately", risk: 3 }, { label: "Stayed flat", risk: 1 }, { label: "Decreased moderately", risk: 2 }, { label: "Decreased significantly", risk: 3 }] },
   { id: "core-systems", domainId: "systems", prompt: "How many core systems are used for fundraising, finance, reporting, and operations?", type: "single", options: [{ label: "1-2", risk: 0 }, { label: "3-5", risk: 1 }, { label: "6-10", risk: 3 }, { label: "10+", risk: 4 }] },
   {

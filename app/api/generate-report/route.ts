@@ -14,6 +14,8 @@ import {
   Responses,
   stageRecommendations
 } from "@/lib/operational-capacity";
+import { nonprofitEnrichmentService } from "@/lib/nonprofit-viability/enrichment-service";
+import { EnhancedAnalysisResult, FinancialMetricName, FinancialYear } from "@/lib/nonprofit-viability/types";
 
 type SourcePage = {
   title: string;
@@ -184,6 +186,8 @@ function fallbackReport(profile: Profile, responses: Responses, result: Assessme
         ],
     recommendations: recommendation.actions,
     fitProofEngagement: recommendation.cta,
+    financialAnalysis: "Public financial trend analysis was not available for the deterministic fallback report.",
+    strategicSignals: "Public strategy or press signals were not available for the deterministic fallback report.",
     primaryStrainDrivers,
     recommendedEngagement: {
       recommendedOffering: recommendation.cta,
@@ -278,6 +282,12 @@ function reportToText(report: GeneratedExecutiveReport, result: AssessmentResult
     "Implications for the Organization",
     report.missionImplications,
     "",
+    "Financial Trend and Viability Context",
+    report.financialAnalysis || "No public financial trend analysis was available.",
+    "",
+    "Strategy and Public Signal Context",
+    report.strategicSignals || "No public strategy signal analysis was available.",
+    "",
     "Recommended FitProof Engagement",
     `Recommended Offering: ${engagement?.recommendedOffering || report.fitProofEngagement}`,
     engagement ? `Why This Offering Fits: ${engagement.whyThisOfferingFits}` : "",
@@ -300,7 +310,7 @@ function reportToText(report: GeneratedExecutiveReport, result: AssessmentResult
     .join("\n");
 }
 
-function buildSubmission(payload: CompletionPayload, report: GeneratedExecutiveReport, sources: SourcePage[], timestamp: Date) {
+function buildSubmission(payload: CompletionPayload, report: GeneratedExecutiveReport, sources: SourcePage[], timestamp: Date, enhancedAnalysis: EnhancedAnalysisResult | null) {
   const respondent = {
     name: payload.lead?.name || null,
     email: payload.lead?.email || null,
@@ -333,6 +343,16 @@ function buildSubmission(payload: CompletionPayload, report: GeneratedExecutiveR
     companyResearchEnrichmentData: {
       publicSignals: report.publicSignals,
       reportSources: report.sources,
+      nonprofitViabilityAnalysis: enhancedAnalysis
+        ? {
+            organization: enhancedAnalysis.organization,
+            financialYears: enhancedAnalysis.financialYears,
+            viabilityScore: enhancedAnalysis.viabilityScore,
+            websiteAnalysis: enhancedAnalysis.websiteAnalysis,
+            publicRecords: enhancedAnalysis.publicRecords,
+            sources: enhancedAnalysis.sources
+          }
+        : null,
       sources: sources.map((source) => ({
         title: source.title,
         url: source.url,
@@ -415,9 +435,9 @@ async function sendSubmissionEmail(submission: ReturnType<typeof buildSubmission
   }
 }
 
-async function retainAndNotifySubmission(payload: CompletionPayload, report: GeneratedExecutiveReport, sources: SourcePage[]) {
+async function retainAndNotifySubmission(payload: CompletionPayload, report: GeneratedExecutiveReport, sources: SourcePage[], enhancedAnalysis: EnhancedAnalysisResult | null) {
   const timestamp = new Date();
-  const submission = buildSubmission(payload, report, sources, timestamp);
+  const submission = buildSubmission(payload, report, sources, timestamp, enhancedAnalysis);
 
   try {
     const filePath = await saveSubmission(submission, payload.profile.organization, timestamp);
@@ -438,7 +458,7 @@ async function retainAndNotifySubmission(payload: CompletionPayload, report: Gen
     });
 }
 
-function buildPrompt(profile: Profile, responses: Responses, result: AssessmentResult, sources: SourcePage[]) {
+function buildPrompt(profile: Profile, responses: Responses, result: AssessmentResult, sources: SourcePage[], enhancedAnalysis: EnhancedAnalysisResult | null) {
   const sourceText = sources
     .map((source, index) => `SOURCE ${index + 1}: ${source.title}\nURL: ${source.url}\nTEXT: ${source.text}`)
     .join("\n\n");
@@ -465,7 +485,9 @@ Rules:
   "executiveSummary": "string",
   "organizationSnapshot": "string",
   "strainDiagnosis": "string",
-  "missionImplications": "string",
+    "missionImplications": "string",
+  "financialAnalysis": "string",
+  "strategicSignals": "string",
   "primaryStrainDrivers": [
     {
       "category": "string",
@@ -497,8 +519,10 @@ Report structure and content requirements:
 3. Spiral Stage Diagnosis: Explain what the assigned spiral stage means and how the organization appears to be experiencing that stage based on assessment responses and company context.
 4. Primary Strain Drivers: Identify the top strain categories. For each, explain what the strain appears to be, what evidence supports it, why it matters for this organization, and what could happen if it is not addressed.
 5. Implications for the Organization: Explain likely operational, financial, staffing, compliance, service delivery, and mission implications specific to the organization.
-6. Recommended FitProof Engagement: Recommend one specific FitProof engagement using the required format in recommendedEngagement.
-7. Next 30-60 Days: Provide a practical action plan with first steps.
+6. Financial Trend and Viability Context: Use the public financial context supplied below to explain revenue, expense, surplus/deficit, liquidity, and viability trends. Explain how those trends may intensify or relieve operational strain. Do not invent financial values; if a field is unavailable, say so.
+7. Strategy and Roadblock Context: Use website strategy, press, program-expansion, annual report, and public signal context to infer roadblocks to the organization's future plans. Tie roadblocks to the operational responses and financial trend. Clearly distinguish known signals from reasonable inferences.
+8. Recommended FitProof Engagement: Recommend one specific FitProof engagement using the required format in recommendedEngagement.
+9. Next 30-60 Days: Provide a practical action plan with first steps.
 
 Offering logic:
 - Early strain / signal stage: Operational Readiness Assessment or Revenue Operations Diagnostic
@@ -530,10 +554,70 @@ Open text constraint:
 ${getOpenConstraint(responses) || "None provided"}
 
 Public website content:
-${sourceText || "No public website content available."}`;
+${sourceText || "No public website content available."}
+
+Public financial, Form 990, annual report, and website strategy context:
+${enhancedAnalysis ? enhancedAnalysisPromptContext(enhancedAnalysis) : "No enhanced nonprofit financial or strategy context was available."}`;
 }
 
-async function generateWithOpenAI(profile: Profile, responses: Responses, result: AssessmentResult, sources: SourcePage[]) {
+function enhancedAnalysisPromptContext(enhancedAnalysis: EnhancedAnalysisResult) {
+  const financialRows = enhancedAnalysis.financialYears
+    .map(
+      (year) =>
+        `FY ${year.fiscalYear}: revenue=${formatMetricValue(year, "totalRevenue")}; expenses=${formatMetricValue(year, "totalExpenses")}; surplus/deficit=${formatMetricValue(year, "surplusDeficit")}; surplus margin=${formatMetricValue(year, "surplusMargin")}; cash/investments=${formatMetricValue(year, "cashAndInvestments")}; current ratio=${formatMetricValue(year, "currentRatio")}; months cash=${formatMetricValue(year, "monthsCashOnHand")}; source=${year.sourceNote}`
+    )
+    .join("\n");
+  const revenueSourceSignals = inferRevenueSourceSignals(enhancedAnalysis);
+
+  return [
+    `Matched organization: ${enhancedAnalysis.organization.legalName || "Unknown"} (${enhancedAnalysis.organization.ein || "EIN unavailable"}), confidence ${enhancedAnalysis.organization.sourceConfidence}.`,
+    `Viability score: ${enhancedAnalysis.viabilityScore.total}/100 (${enhancedAnalysis.viabilityScore.classification}).`,
+    `Viability risk flags: ${enhancedAnalysis.viabilityScore.riskFlags.join("; ") || "No major calculated flags."}`,
+    `Financial trend rows:\n${financialRows || "No financial years available."}`,
+    `Revenue source signals from 990/annual report context: ${revenueSourceSignals.join("; ") || "No reliable revenue source breakdown available."}`,
+    `Mission/program signals: ${enhancedAnalysis.websiteAnalysis.programDescriptions.join(" | ") || "Unavailable."}`,
+    `Strategic priority signals: ${enhancedAnalysis.websiteAnalysis.strategicPriorities.join(" | ") || "Unavailable."}`,
+    `Program expansion signals: ${enhancedAnalysis.websiteAnalysis.programExpansionSignals.join(" | ") || "Unavailable."}`,
+    `Operational complexity signals: ${enhancedAnalysis.websiteAnalysis.operationalComplexitySignals.join(" | ") || "Unavailable."}`,
+    `Annual/impact report links: ${enhancedAnalysis.websiteAnalysis.annualReportLinks.join(" | ") || "Unavailable."}`,
+    `Audit/financial links: ${enhancedAnalysis.websiteAnalysis.auditFinancialLinks.join(" | ") || "Unavailable."}`,
+    `Public record signals: ${enhancedAnalysis.publicRecords.map((record) => `${record.title}: ${record.relevance}`).join(" | ") || "Unavailable."}`,
+    `Sources reviewed: ${enhancedAnalysis.sources.slice(0, 12).map((source) => `${source.title} (${source.sourceType}, ${source.confidence}) ${source.url || ""}`).join(" | ") || "Unavailable."}`
+  ].join("\n");
+}
+
+function formatMetricValue(year: FinancialYear, name: FinancialMetricName) {
+  const metric = year.metrics.find((item) => item.name === name);
+  if (!metric || metric.value === null) return "unavailable";
+  if (name.includes("Ratio") || name.includes("Margin") || name.includes("Growth")) return `${Math.round(metric.value * 1000) / 10}%`;
+  return `${Math.round(metric.value)}`;
+}
+
+function inferRevenueSourceSignals(enhancedAnalysis: EnhancedAnalysisResult) {
+  const signals = new Set<string>();
+  const text = [
+    ...enhancedAnalysis.websiteAnalysis.programDescriptions,
+    ...enhancedAnalysis.websiteAnalysis.majorFunders,
+    ...enhancedAnalysis.sources.map((source) => `${source.title} ${source.notes || ""} ${source.textExcerpt || ""}`)
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  [
+    ["Government contracts", /government contract|public contract|medicaid|vocational rehabilitation|state contract|federal contract/],
+    ["Grants", /grant|foundation|funder/],
+    ["Contributions", /donation|donor|contribution|fundraising/],
+    ["Program service revenue", /program service|fee for service|service revenue|earned revenue/],
+    ["Retail or social enterprise revenue", /retail|store|shop|thrift|social enterprise/],
+    ["Events or sponsorships", /event|sponsor|sponsorship/]
+  ].forEach(([label, pattern]) => {
+    if ((pattern as RegExp).test(text)) signals.add(label as string);
+  });
+
+  return [...signals];
+}
+
+async function generateWithOpenAI(profile: Profile, responses: Responses, result: AssessmentResult, sources: SourcePage[], enhancedAnalysis: EnhancedAnalysisResult | null) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
   const webSearchEnabled = process.env.OPENAI_WEB_SEARCH_ENABLED !== "false";
@@ -546,6 +630,8 @@ async function generateWithOpenAI(profile: Profile, responses: Responses, result
       "organizationSnapshot",
       "strainDiagnosis",
       "missionImplications",
+      "financialAnalysis",
+      "strategicSignals",
       "primaryStrainDrivers",
       "topRisks",
       "recommendations",
@@ -559,6 +645,8 @@ async function generateWithOpenAI(profile: Profile, responses: Responses, result
       organizationSnapshot: { type: "string" },
       strainDiagnosis: { type: "string" },
       missionImplications: { type: "string" },
+      financialAnalysis: { type: "string" },
+      strategicSignals: { type: "string" },
       primaryStrainDrivers: {
         type: "array",
         items: {
@@ -598,7 +686,7 @@ async function generateWithOpenAI(profile: Profile, responses: Responses, result
 
   const requestBody = {
     model: process.env.OPENAI_REPORT_MODEL || "gpt-4.1-mini",
-    input: buildPrompt(profile, responses, result, sources),
+    input: buildPrompt(profile, responses, result, sources, enhancedAnalysis),
     tools: webSearchEnabled ? [{ type: "web_search" }] : undefined,
     tool_choice: webSearchEnabled ? "auto" : undefined,
     text: {
@@ -714,12 +802,21 @@ export async function POST(request: Request) {
   const payload = (await request.json()) as CompletionPayload;
 
   const sources = await collectWebsiteSources(payload.profile.websiteUrl);
+  const enhancedAnalysis = await nonprofitEnrichmentService({
+    name: payload.profile.organization,
+    website: payload.profile.websiteUrl,
+    includePublicRecordsSearch: true,
+    includeStateRegistrySearch: true
+  }).catch((error) => {
+    console.error("Enhanced nonprofit analysis failed during report generation", error);
+    return null;
+  });
 
   try {
-    const generated = await generateWithOpenAI(payload.profile, payload.responses, payload.result, sources);
+    const generated = await generateWithOpenAI(payload.profile, payload.responses, payload.result, sources, enhancedAnalysis);
 
     if (generated) {
-      await retainAndNotifySubmission(payload, generated, sources);
+      await retainAndNotifySubmission(payload, generated, sources, enhancedAnalysis);
       return NextResponse.json(generated);
     }
 
@@ -730,13 +827,13 @@ export async function POST(request: Request) {
       sources,
       sources.length ? "AI report generation is not configured yet. Add OPENAI_API_KEY to use the collected public website content in the executive narrative." : undefined
     );
-    await retainAndNotifySubmission(payload, fallback, sources);
+    await retainAndNotifySubmission(payload, fallback, sources, enhancedAnalysis);
 
     return NextResponse.json(fallback);
   } catch (error) {
     console.error("AI report generation failed", error);
     const fallback = fallbackReport(payload.profile, payload.responses, payload.result, sources, "AI report generation failed, so the deterministic executive report is shown instead.");
-    await retainAndNotifySubmission(payload, fallback, sources);
+    await retainAndNotifySubmission(payload, fallback, sources, enhancedAnalysis);
     return NextResponse.json(fallback);
   }
 }
