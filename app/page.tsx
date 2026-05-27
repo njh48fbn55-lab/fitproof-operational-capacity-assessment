@@ -611,6 +611,7 @@ function Report({
   onRetryAnalysis: () => void;
 }) {
   const recommendation = stageRecommendations[result.stage.number];
+  const intelligence = generatedReport?.operationalIntelligence;
   const summary = generatedReport?.executiveSummary || generateExecutiveSummary(profile, result);
   const risks = generatedReport?.topRisks?.length ? generatedReport.topRisks : generateRisks(result);
   const actions = generatedReport?.recommendations?.length ? generatedReport.recommendations : recommendation.actions;
@@ -670,12 +671,29 @@ function Report({
           <h2>Score Profile</h2>
           <p><span class="score">Operational strain: ${escapeHtml(result.riskScore)}/100</span><span class="score">Stage ${escapeHtml(result.stage.number)}: ${escapeHtml(result.stage.name)}</span></p>
 
-          ${generatedReport?.organizationSnapshot ? `<h2>Organization Snapshot</h2><p>${escapeHtml(generatedReport.organizationSnapshot)}</p>` : ""}
-          ${generatedReport?.missionImplications ? `<h2>Mission Implications</h2><p>${escapeHtml(generatedReport.missionImplications)}</p>` : ""}
-          ${generatedReport?.strainDiagnosis ? `<h2>Operational Strain Diagnosis</h2><p>${escapeHtml(generatedReport.strainDiagnosis)}</p>` : ""}
-          ${generatedReport?.financialAnalysis ? `<h2>Financial Trend and Viability Context</h2><p>${escapeHtml(generatedReport.financialAnalysis)}</p>` : ""}
-          ${generatedReport?.staffingCapacityAnalysis ? `<h2>Workforce Capacity Context</h2><p>${escapeHtml(generatedReport.staffingCapacityAnalysis)}</p>` : ""}
-          ${generatedReport?.strategicSignals ? `<h2>Strategy and Roadblock Context</h2><p>${escapeHtml(generatedReport.strategicSignals)}</p>` : ""}
+          ${
+            intelligence
+              ? `
+                <h2>Executive Snapshot</h2>
+                <p><span class="score">Operational Health: ${escapeHtml(intelligence.executiveSnapshot.operationalHealthScore)}/100</span><span class="score">Growth Readiness: ${escapeHtml(intelligence.executiveSnapshot.growthReadinessScore)}/100</span><span class="score">Strain Stage: ${escapeHtml(intelligence.executiveSnapshot.operationalStrainSpiralStage)}</span></p>
+                <h2>Key Findings</h2><ul>${listItems(intelligence.keyFindings)}</ul>
+                <h2>Benchmark Highlights</h2>
+                <table><thead><tr><th>Metric</th><th>Organization</th><th>Peer Median</th><th>Percentile</th></tr></thead><tbody>${intelligence.benchmarkHighlights.map((item) => `<tr><td>${escapeHtml(item.metric)}</td><td>${escapeHtml(item.organizationDisplay)}</td><td>${escapeHtml(item.peerMedianDisplay)}</td><td>${escapeHtml(item.percentile === null ? "Unavailable" : `${item.percentile}th`)}</td></tr>`).join("")}</tbody></table>
+                <h2>Primary Operational Risks</h2><ul>${listItems(intelligence.primaryOperationalRisks)}</ul>
+                <h2>Growth Constraints</h2><ul>${listItems(intelligence.growthConstraints)}</ul>
+                <h2>Recommended Priorities</h2><ul>${listItems(intelligence.recommendedPriorities)}</ul>
+                <h2>Supporting Metrics</h2>
+                <table><thead><tr><th>Metric</th><th>Value</th><th>Source</th></tr></thead><tbody>${intelligence.supportingMetrics.map((item) => `<tr><td>${escapeHtml(item.label)}</td><td>${escapeHtml(item.value)}</td><td>${escapeHtml(item.source)}</td></tr>`).join("")}</tbody></table>
+              `
+              : ""
+          }
+
+          ${!intelligence && generatedReport?.organizationSnapshot ? `<h2>Organization Snapshot</h2><p>${escapeHtml(generatedReport.organizationSnapshot)}</p>` : ""}
+          ${!intelligence && generatedReport?.missionImplications ? `<h2>Mission Implications</h2><p>${escapeHtml(generatedReport.missionImplications)}</p>` : ""}
+          ${!intelligence && generatedReport?.strainDiagnosis ? `<h2>Operational Strain Diagnosis</h2><p>${escapeHtml(generatedReport.strainDiagnosis)}</p>` : ""}
+          ${!intelligence && generatedReport?.financialAnalysis ? `<h2>Financial Trend and Viability Context</h2><p>${escapeHtml(generatedReport.financialAnalysis)}</p>` : ""}
+          ${!intelligence && generatedReport?.staffingCapacityAnalysis ? `<h2>Workforce Capacity Context</h2><p>${escapeHtml(generatedReport.staffingCapacityAnalysis)}</p>` : ""}
+          ${!intelligence && generatedReport?.strategicSignals ? `<h2>Strategy and Roadblock Context</h2><p>${escapeHtml(generatedReport.strategicSignals)}</p>` : ""}
 
           <h2>Section Scorecard</h2>
           <table>
@@ -683,9 +701,9 @@ function Report({
             <tbody>${sectionRows}</tbody>
           </table>
 
-          <h2>Primary Strain Drivers</h2>
+          ${!intelligence ? `<h2>Primary Strain Drivers</h2>` : ""}
           ${
-            generatedReport?.primaryStrainDrivers?.length
+            !intelligence && generatedReport?.primaryStrainDrivers?.length
               ? generatedReport.primaryStrainDrivers
                   .map(
                     (driver) => `
@@ -697,11 +715,10 @@ function Report({
                     `
                   )
                   .join("")
-              : `<ul>${listItems(risks)}</ul>`
+              : !intelligence ? `<ul>${listItems(risks)}</ul>` : ""
           }
 
-          <h2>Top Operational Strain Risks</h2>
-          <ul>${listItems(risks)}</ul>
+          ${!intelligence ? `<h2>Top Operational Strain Risks</h2><ul>${listItems(risks)}</ul>` : ""}
 
           <h2>How to Interrupt the Spiral</h2>
           <p>${escapeHtml(recommendation.primary)}</p>
@@ -791,6 +808,10 @@ function Report({
         </section>
       )}
 
+      {intelligence ? (
+        <OperationalIntelligenceView intelligence={intelligence} sources={generatedReport?.sources || []} />
+      ) : (
+        <>
       <section className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(220px,1fr)]">
         <OperationalGauge strain={result.riskScore} />
         <div className="rounded border border-line bg-panel p-4">
@@ -970,8 +991,10 @@ function Report({
           ))}
         </div>
       </section>
+        </>
+      )}
 
-      {generatedReport && (
+      {generatedReport && !intelligence && (
         <section className="grid gap-4 md:grid-cols-2">
           <div className="rounded border border-line p-4">
             <h3 className="text-lg font-bold">Public Signals Reviewed</h3>
@@ -999,6 +1022,165 @@ function Report({
       )}
     </article>
   );
+}
+
+function OperationalIntelligenceView({
+  intelligence,
+  sources
+}: {
+  intelligence: NonNullable<GeneratedExecutiveReport["operationalIntelligence"]>;
+  sources: { title: string; url: string }[];
+}) {
+  const snapshot = intelligence.executiveSnapshot;
+  const categoryScores = Object.entries(intelligence.operationalHealthScore.categoryScores);
+
+  return (
+    <div className="grid gap-5">
+      <section className="grid gap-3 md:grid-cols-3">
+        <ScoreCard label="Operational Health" value={snapshot.operationalHealthScore} suffix="/100" detail={snapshot.financialStabilityIndicator} />
+        <ScoreCard label="Growth Readiness" value={snapshot.growthReadinessScore} suffix="/100" detail={intelligence.growthReadinessScore.classification} />
+        <div className="rounded border border-line bg-panel p-4">
+          <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate">Operational Strain Spiral</p>
+          <p className="mt-2 text-2xl font-bold">{snapshot.operationalStrainSpiralStage}</p>
+          <p className="mt-1 text-xs font-bold uppercase tracking-[0.12em] text-slate">{intelligence.operationalStrainSpiral.stageConfidence}% confidence</p>
+        </div>
+      </section>
+
+      <section className="rounded border border-line bg-white p-4">
+        <h3 className="text-lg font-bold">Executive Snapshot</h3>
+        <div className="mt-3 grid gap-3 text-sm md:grid-cols-2">
+          <p><strong>Financial stability:</strong> {labelForBand(snapshot.financialStabilityIndicator)}</p>
+          <p><strong>Workforce capacity:</strong> {labelForBand(snapshot.workforceCapacityIndicator)}</p>
+          <p><strong>Benchmark percentile:</strong> {snapshot.benchmarkPercentile === null ? "Unavailable" : `${snapshot.benchmarkPercentile}th percentile`}</p>
+          <p><strong>Growth classification:</strong> {intelligence.growthReadinessScore.classification}</p>
+        </div>
+      </section>
+
+      <section className="rounded border border-line bg-mist p-4">
+        <h3 className="text-lg font-bold">Key Findings</h3>
+        <div className="mt-3 grid gap-2">
+          {intelligence.keyFindings.map((finding) => (
+            <p key={finding} className="rounded border border-fitgreen/30 bg-white px-3 py-2 text-sm font-semibold leading-6 text-ink">{finding}</p>
+          ))}
+        </div>
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-[1fr_1.15fr]">
+        <div className="rounded border border-line p-4">
+          <h3 className="text-lg font-bold">Operational Health Score</h3>
+          <div className="mt-3 grid gap-3">
+            {categoryScores.map(([category, score]) => (
+              <div key={category} className="grid grid-cols-[150px_1fr_44px] items-center gap-3 text-sm">
+                <span className="font-semibold text-slate">{category}</span>
+                <Meter value={score} />
+                <span className="text-right font-bold tabular-nums">{score}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded border border-line p-4">
+          <h3 className="text-lg font-bold">Benchmark Highlights</h3>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[560px] border-collapse text-left text-sm">
+              <thead>
+                <tr className="border-b border-line text-xs uppercase tracking-[0.1em] text-slate">
+                  <th className="py-2 pr-3">Metric</th>
+                  <th className="py-2 pr-3">Organization</th>
+                  <th className="py-2 pr-3">Peer median</th>
+                  <th className="py-2 pr-3">Percentile</th>
+                </tr>
+              </thead>
+              <tbody>
+                {intelligence.benchmarkHighlights.length ? (
+                  intelligence.benchmarkHighlights.map((item) => (
+                    <tr key={item.metric} className="border-b border-line/70">
+                      <td className="py-2 pr-3 font-semibold">{item.metric}</td>
+                      <td className="py-2 pr-3">{item.organizationDisplay}</td>
+                      <td className="py-2 pr-3">{item.peerMedianDisplay}</td>
+                      <td className="py-2 pr-3">{item.percentile === null ? "Unavailable" : `${item.percentile}th`}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr><td className="py-2 text-slate" colSpan={4}>Benchmark comparisons were unavailable because source metrics were not found.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-3">
+        <ListPanel title="Primary Operational Risks" items={intelligence.primaryOperationalRisks} />
+        <ListPanel title="Growth Constraints" items={intelligence.growthConstraints} />
+        <ListPanel title="Recommended Priorities" items={intelligence.recommendedPriorities} />
+      </section>
+
+      <details className="rounded border border-line bg-panel p-4">
+        <summary className="cursor-pointer text-lg font-bold">Supporting Metrics</summary>
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[620px] border-collapse text-left text-sm">
+            <thead>
+              <tr className="border-b border-line text-xs uppercase tracking-[0.1em] text-slate">
+                <th className="py-2 pr-3">Metric</th>
+                <th className="py-2 pr-3">Value</th>
+                <th className="py-2 pr-3">Source</th>
+              </tr>
+            </thead>
+            <tbody>
+              {intelligence.supportingMetrics.map((item) => (
+                <tr key={item.label} className="border-b border-line/70">
+                  <td className="py-2 pr-3 font-semibold">{item.label}</td>
+                  <td className="py-2 pr-3">{item.value}</td>
+                  <td className="py-2 pr-3 text-slate">{item.source}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
+
+      <details className="rounded border border-line bg-white p-4">
+        <summary className="cursor-pointer text-lg font-bold">Sources Reviewed</summary>
+        <ul className="mt-3 grid gap-2 text-sm leading-6 text-slate">
+          {sources.length ? (
+            sources.map((source) => <li key={source.url}>{source.title}: {source.url}</li>)
+          ) : (
+            <li>No public website sources were available.</li>
+          )}
+        </ul>
+      </details>
+    </div>
+  );
+}
+
+function ScoreCard({ label, value, suffix, detail }: { label: string; value: number; suffix: string; detail: string }) {
+  return (
+    <div className="rounded border border-line bg-panel p-4">
+      <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate">{label}</p>
+      <p className="mt-2 text-3xl font-bold tabular-nums text-charcoal">{value}<span className="text-base text-slate">{suffix}</span></p>
+      <p className="mt-1 text-sm font-bold text-fitgreen">{detail}</p>
+    </div>
+  );
+}
+
+function ListPanel({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div className="rounded border border-line p-4">
+      <h3 className="text-lg font-bold">{title}</h3>
+      <ul className="mt-3 grid gap-2 text-sm leading-6 text-slate">
+        {items.length ? items.map((item) => <li key={item}>{item}</li>) : <li>No priority items available.</li>}
+      </ul>
+    </div>
+  );
+}
+
+function labelForBand(value: string) {
+  if (value === "strong") return "Strong";
+  if (value === "watch") return "Watch area";
+  if (value === "constrained") return "Constrained";
+  if (value === "critical") return "Critical";
+  return "Unavailable";
 }
 
 function OperationalGauge({ strain }: { strain: number }) {

@@ -77,6 +77,7 @@ export type RecommendedEngagement = {
 export type GeneratedExecutiveReport = {
   generated: boolean;
   fallbackReason?: string;
+  operationalIntelligence?: import("@/lib/operational-intelligence/types").OperationalIntelligenceReport;
   executiveSummary: string;
   organizationSnapshot: string;
   strainDiagnosis: string;
