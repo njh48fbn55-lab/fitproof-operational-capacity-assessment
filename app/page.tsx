@@ -674,6 +674,7 @@ function Report({
           ${generatedReport?.missionImplications ? `<h2>Mission Implications</h2><p>${escapeHtml(generatedReport.missionImplications)}</p>` : ""}
           ${generatedReport?.strainDiagnosis ? `<h2>Operational Strain Diagnosis</h2><p>${escapeHtml(generatedReport.strainDiagnosis)}</p>` : ""}
           ${generatedReport?.financialAnalysis ? `<h2>Financial Trend and Viability Context</h2><p>${escapeHtml(generatedReport.financialAnalysis)}</p>` : ""}
+          ${generatedReport?.staffingCapacityAnalysis ? `<h2>Workforce Capacity Context</h2><p>${escapeHtml(generatedReport.staffingCapacityAnalysis)}</p>` : ""}
           ${generatedReport?.strategicSignals ? `<h2>Strategy and Roadblock Context</h2><p>${escapeHtml(generatedReport.strategicSignals)}</p>` : ""}
 
           <h2>Section Scorecard</h2>
@@ -844,12 +845,18 @@ function Report({
         </section>
       )}
 
-      {(generatedReport?.financialAnalysis || generatedReport?.strategicSignals) && (
-        <section className="grid gap-4 md:grid-cols-2">
+      {(generatedReport?.financialAnalysis || generatedReport?.staffingCapacityAnalysis || generatedReport?.strategicSignals) && (
+        <section className="grid gap-4 md:grid-cols-3">
           {generatedReport.financialAnalysis && (
             <div className="rounded border border-line p-4">
               <h3 className="text-lg font-bold">Financial Trend and Viability Context</h3>
               <p className="mt-2 text-sm leading-6 text-slate">{generatedReport.financialAnalysis}</p>
+            </div>
+          )}
+          {generatedReport.staffingCapacityAnalysis && (
+            <div className="rounded border border-line p-4">
+              <h3 className="text-lg font-bold">Workforce Capacity Context</h3>
+              <p className="mt-2 text-sm leading-6 text-slate">{generatedReport.staffingCapacityAnalysis}</p>
             </div>
           )}
           {generatedReport.strategicSignals && (

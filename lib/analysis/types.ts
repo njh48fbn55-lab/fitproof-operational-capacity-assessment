@@ -1,5 +1,6 @@
 import { AssessmentResult, GeneratedExecutiveReport, Lead, Profile, Responses } from "@/lib/operational-capacity";
 import { EnhancedAnalysisResult } from "@/lib/nonprofit-viability/types";
+import { WorkforceCapacityAnalysis } from "@/lib/workforce-capacity/types";
 
 export type AnalysisStatus = "queued" | "running" | "completed" | "failed";
 
@@ -43,5 +44,6 @@ export type AnalysisJobResults = {
   assessment: AnalysisAssessment;
   job: AnalysisJob;
   enhancedAnalysis: EnhancedAnalysisResult | null;
+  workforceCapacityAnalysis: WorkforceCapacityAnalysis | null;
   report: GeneratedExecutiveReport | null;
 };

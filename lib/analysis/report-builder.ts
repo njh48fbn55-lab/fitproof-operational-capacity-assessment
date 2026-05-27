@@ -1,33 +1,37 @@
 import { AssessmentResult, GeneratedExecutiveReport, Profile, Responses, generateExecutiveSummary, generateRisks, stageRecommendations } from "@/lib/operational-capacity";
 import { EnhancedAnalysisResult, FinancialMetricName, FinancialYear } from "@/lib/nonprofit-viability/types";
+import { WorkforceCapacityAnalysis } from "@/lib/workforce-capacity/types";
 
 export async function buildGeneratedReport({
   profile,
   responses,
   result,
-  enhancedAnalysis
+  enhancedAnalysis,
+  workforceCapacityAnalysis
 }: {
   profile: Profile;
   responses: Responses;
   result: AssessmentResult;
   enhancedAnalysis: EnhancedAnalysisResult | null;
+  workforceCapacityAnalysis: WorkforceCapacityAnalysis | null;
 }) {
-  const fallback = deterministicReport(profile, result, enhancedAnalysis);
+  const fallback = deterministicReport(profile, result, enhancedAnalysis, workforceCapacityAnalysis);
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return { ...fallback, fallbackReason: "AI report generation skipped because OPENAI_API_KEY is not configured." };
 
   try {
-    return await generateWithOpenAI(apiKey, profile, responses, result, enhancedAnalysis);
+    return await generateWithOpenAI(apiKey, profile, responses, result, enhancedAnalysis, workforceCapacityAnalysis);
   } catch (error) {
     console.error("Background OpenAI report generation failed", error);
     return { ...fallback, fallbackReason: userFacingReportError(error) };
   }
 }
 
-function deterministicReport(profile: Profile, result: AssessmentResult, enhancedAnalysis: EnhancedAnalysisResult | null): GeneratedExecutiveReport {
+function deterministicReport(profile: Profile, result: AssessmentResult, enhancedAnalysis: EnhancedAnalysisResult | null, workforceCapacityAnalysis: WorkforceCapacityAnalysis | null): GeneratedExecutiveReport {
   const recommendation = stageRecommendations[result.stage.number];
   const financialAnalysis = enhancedAnalysis ? financialNarrative(enhancedAnalysis) : "No public financial trend analysis was available.";
   const strategicSignals = enhancedAnalysis ? strategyNarrative(enhancedAnalysis) : "No website strategy or public signal analysis was available.";
+  const staffingCapacityAnalysis = workforceCapacityAnalysis ? staffingNarrative(workforceCapacityAnalysis) : "No public workforce capacity analysis was available.";
 
   return {
     generated: false,
@@ -36,6 +40,7 @@ function deterministicReport(profile: Profile, result: AssessmentResult, enhance
     strainDiagnosis: `${result.stage.interpretation} The highest-scoring risk areas should be interpreted together with the financial and public strategy context.`,
     missionImplications: "Operational strain can limit service responsiveness, leadership visibility, and the ability to pursue future plans with confidence.",
     financialAnalysis,
+    staffingCapacityAnalysis,
     strategicSignals,
     primaryStrainDrivers: result.topRiskDomains.map((domain) => ({
       category: domain.title,
@@ -57,16 +62,22 @@ function deterministicReport(profile: Profile, result: AssessmentResult, enhance
       whyNow: "The assessment indicates operational strain that should be addressed before it compounds into service, staffing, reporting, or funding execution issues."
     },
     nextSteps: recommendation.actions,
-    publicSignals: enhancedAnalysis ? publicSignals(enhancedAnalysis) : ["No enriched public signals were available."],
-    sources: enhancedAnalysis ? enhancedAnalysis.sources.filter((source) => source.url).map((source) => ({ title: source.title, url: source.url || "" })) : []
+    publicSignals: [
+      ...(enhancedAnalysis ? publicSignals(enhancedAnalysis) : ["No enriched public signals were available."]),
+      ...(workforceCapacityAnalysis ? workforcePublicSignals(workforceCapacityAnalysis) : [])
+    ],
+    sources: [
+      ...(enhancedAnalysis ? enhancedAnalysis.sources.filter((source) => source.url).map((source) => ({ title: source.title, url: source.url || "" })) : []),
+      ...(workforceCapacityAnalysis ? workforceCapacityAnalysis.careers.sources.filter((source) => source.url).map((source) => ({ title: source.title, url: source.url || "" })) : [])
+    ]
   };
 }
 
-async function generateWithOpenAI(apiKey: string, profile: Profile, responses: Responses, result: AssessmentResult, enhancedAnalysis: EnhancedAnalysisResult | null): Promise<GeneratedExecutiveReport> {
+async function generateWithOpenAI(apiKey: string, profile: Profile, responses: Responses, result: AssessmentResult, enhancedAnalysis: EnhancedAnalysisResult | null, workforceCapacityAnalysis: WorkforceCapacityAnalysis | null): Promise<GeneratedExecutiveReport> {
   const schema = reportSchema();
   const body = {
     model: process.env.OPENAI_REPORT_MODEL || "gpt-4.1-mini",
-    input: reportPrompt(profile, responses, result, enhancedAnalysis),
+    input: reportPrompt(profile, responses, result, enhancedAnalysis, workforceCapacityAnalysis),
     text: {
       format: {
         type: "json_schema",
@@ -102,11 +113,14 @@ async function generateWithOpenAI(apiKey: string, profile: Profile, responses: R
   return {
     generated: true,
     ...parsed,
-    sources: enhancedAnalysis ? enhancedAnalysis.sources.filter((source) => source.url).map((source) => ({ title: source.title, url: source.url || "" })) : []
+    sources: [
+      ...(enhancedAnalysis ? enhancedAnalysis.sources.filter((source) => source.url).map((source) => ({ title: source.title, url: source.url || "" })) : []),
+      ...(workforceCapacityAnalysis ? workforceCapacityAnalysis.careers.sources.filter((source) => source.url).map((source) => ({ title: source.title, url: source.url || "" })) : [])
+    ]
   };
 }
 
-function reportPrompt(profile: Profile, responses: Responses, result: AssessmentResult, enhancedAnalysis: EnhancedAnalysisResult | null) {
+function reportPrompt(profile: Profile, responses: Responses, result: AssessmentResult, enhancedAnalysis: EnhancedAnalysisResult | null, workforceCapacityAnalysis: WorkforceCapacityAnalysis | null) {
   return `Generate a FitProof executive operational strain report.
 
 Rules:
@@ -115,6 +129,9 @@ Rules:
 - Use calculations and extracted metrics as source of truth.
 - Use summaries and public signals for interpretation only.
 - Explain how operational responses, financial trend, liquidity, staffing capacity, and future strategy roadblocks interact.
+- Use workforce capacity data only as public hiring signal evidence.
+- Do not claim actual turnover, burnout, or employee sentiment unless directly evidenced by a public source.
+- Use careful wording such as "signals of operational strain", "possible hiring pressure", "capacity constraints may exist", and "extended vacancy duration may indicate recruiting challenges."
 
 Organization: ${profile.organization}
 Website: ${profile.websiteUrl}
@@ -124,20 +141,24 @@ Category scores: ${result.domainScores.map((domain) => `${domain.title}: ${domai
 Responses: ${JSON.stringify(responses)}
 
 Enhanced financial and public context:
-${enhancedAnalysis ? enhancedAnalysisPromptContext(enhancedAnalysis) : "No enhanced context available."}`;
+${enhancedAnalysis ? enhancedAnalysisPromptContext(enhancedAnalysis) : "No enhanced context available."}
+
+Workforce capacity and public hiring context:
+${workforceCapacityAnalysis ? workforcePromptContext(workforceCapacityAnalysis) : "No workforce capacity context available."}`;
 }
 
 function reportSchema() {
   return {
     type: "object",
     additionalProperties: false,
-    required: ["executiveSummary", "organizationSnapshot", "strainDiagnosis", "missionImplications", "financialAnalysis", "strategicSignals", "primaryStrainDrivers", "topRisks", "recommendations", "fitProofEngagement", "recommendedEngagement", "nextSteps", "publicSignals"],
+    required: ["executiveSummary", "organizationSnapshot", "strainDiagnosis", "missionImplications", "financialAnalysis", "staffingCapacityAnalysis", "strategicSignals", "primaryStrainDrivers", "topRisks", "recommendations", "fitProofEngagement", "recommendedEngagement", "nextSteps", "publicSignals"],
     properties: {
       executiveSummary: { type: "string" },
       organizationSnapshot: { type: "string" },
       strainDiagnosis: { type: "string" },
       missionImplications: { type: "string" },
       financialAnalysis: { type: "string" },
+      staffingCapacityAnalysis: { type: "string" },
       strategicSignals: { type: "string" },
       primaryStrainDrivers: {
         type: "array",
@@ -206,6 +227,13 @@ function financialNarrative(enhancedAnalysis: EnhancedAnalysisResult) {
   return `Latest available public financial year is FY ${latest.fiscalYear}. Viability score is ${enhancedAnalysis.viabilityScore.total}/100 (${enhancedAnalysis.viabilityScore.classification}). Key flags: ${enhancedAnalysis.viabilityScore.riskFlags.join("; ") || "no major calculated flags"}.`;
 }
 
+function staffingNarrative(workforceCapacityAnalysis: WorkforceCapacityAnalysis) {
+  const metrics = workforceCapacityAnalysis.metrics;
+  const ratio = metrics.openRoleRatio === null ? "open-role ratio unavailable" : `open-role ratio approximately ${Math.round(metrics.openRoleRatio * 100)}%`;
+  const age = metrics.averageRequisitionAgeDays === null ? "posting age unavailable" : `average visible requisition age approximately ${metrics.averageRequisitionAgeDays} days`;
+  return `${workforceCapacityAnalysis.narrative.staffingCapacitySummary} Public hiring review found ${metrics.totalOpenPositions} open role(s), ${metrics.leadershipOpenings} senior/leadership opening(s), ${ratio}, and ${age}. These are signals of possible staffing capacity pressure, not proof of turnover, burnout, or employee sentiment.`;
+}
+
 function strategyNarrative(enhancedAnalysis: EnhancedAnalysisResult) {
   const signals = [
     ...enhancedAnalysis.websiteAnalysis.strategicPriorities,
@@ -215,12 +243,46 @@ function strategyNarrative(enhancedAnalysis: EnhancedAnalysisResult) {
   return signals.length ? signals.slice(0, 5).join(" ") : "No clear public strategy or expansion signals were available from the reviewed sources.";
 }
 
+function workforcePromptContext(workforceCapacityAnalysis: WorkforceCapacityAnalysis) {
+  const metrics = workforceCapacityAnalysis.metrics;
+  const departments = Object.entries(metrics.openPositionsByDepartment)
+    .map(([department, count]) => `${department}: ${count}`)
+    .join("; ");
+
+  return [
+    `Public open roles: ${metrics.totalOpenPositions}.`,
+    `Open roles by department: ${departments || "Unavailable."}`,
+    `Leadership openings: ${metrics.leadershipOpenings}.`,
+    `Estimated workforce size: ${workforceCapacityAnalysis.workforceSize.estimatedEmployeeCount ?? "Unavailable"} (${workforceCapacityAnalysis.workforceSize.confidence} confidence).`,
+    `Open-role ratio: ${metrics.openRoleRatio ?? "Unavailable"}.`,
+    `Average requisition age: ${metrics.averageRequisitionAgeDays ?? "Unavailable"} days.`,
+    `Aged postings: >30 days=${percent(metrics.percentOpenMoreThan30Days)}, >60 days=${percent(metrics.percentOpenMoreThan60Days)}, >90 days=${percent(metrics.percentOpenMoreThan90Days)}.`,
+    `Staffing risk indicator: ${workforceCapacityAnalysis.riskScore.level} (${workforceCapacityAnalysis.riskScore.score}/100).`,
+    `Indicators: ${workforceCapacityAnalysis.riskScore.indicators.join("; ") || "Unavailable."}`,
+    `Evidence: ${workforceCapacityAnalysis.riskScore.evidence.join("; ") || "Unavailable."}`,
+    `Recommendations: ${workforceCapacityAnalysis.narrative.recommendations.join("; ")}`,
+    `Hiring sources reviewed: ${workforceCapacityAnalysis.careers.searchedUrls.slice(0, 10).join(" | ") || "Unavailable."}`
+  ].join("\n");
+}
+
+function workforcePublicSignals(workforceCapacityAnalysis: WorkforceCapacityAnalysis) {
+  return [
+    `Workforce capacity signal: ${workforceCapacityAnalysis.riskScore.level}.`,
+    ...workforceCapacityAnalysis.riskScore.evidence,
+    ...workforceCapacityAnalysis.careers.sources.slice(0, 5).map((source) => `Reviewed ${source.title} for public hiring signals.`)
+  ];
+}
+
 function publicSignals(enhancedAnalysis: EnhancedAnalysisResult) {
   return [
     ...enhancedAnalysis.viabilityScore.riskFlags,
     ...enhancedAnalysis.publicRecords.map((record) => `${record.title}: ${record.relevance}`),
     ...enhancedAnalysis.sources.slice(0, 5).map((source) => `Reviewed ${source.title} (${source.sourceType}).`)
   ];
+}
+
+function percent(value: number | null) {
+  return value === null ? "Unavailable" : `${Math.round(value * 100)}%`;
 }
 
 function userFacingReportError(error: unknown) {

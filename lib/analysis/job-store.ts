@@ -3,6 +3,7 @@ import path from "node:path";
 import { GeneratedExecutiveReport, Profile, Responses, AssessmentResult, Lead } from "@/lib/operational-capacity";
 import { EnhancedAnalysisResult } from "@/lib/nonprofit-viability/types";
 import { slugify } from "@/lib/nonprofit-viability/utils";
+import { WorkforceCapacityAnalysis } from "@/lib/workforce-capacity/types";
 import { AnalysisAssessment, AnalysisJob, AnalysisJobResults, AnalysisStep } from "./types";
 
 export function analysisDataDir() {
@@ -90,7 +91,7 @@ export async function updateJobStep(id: string, currentStep: AnalysisStep, progr
   });
 }
 
-export async function saveJobResults(job: AnalysisJob, enhancedAnalysis: EnhancedAnalysisResult | null, report: GeneratedExecutiveReport) {
+export async function saveJobResults(job: AnalysisJob, enhancedAnalysis: EnhancedAnalysisResult | null, workforceCapacityAnalysis: WorkforceCapacityAnalysis | null, report: GeneratedExecutiveReport) {
   const assessment = await getAssessment(job.assessmentId);
   const results: AnalysisJobResults = {
     assessment,
@@ -102,6 +103,7 @@ export async function saveJobResults(job: AnalysisJob, enhancedAnalysis: Enhance
       completedAt: new Date().toISOString()
     },
     enhancedAnalysis,
+    workforceCapacityAnalysis,
     report
   };
 

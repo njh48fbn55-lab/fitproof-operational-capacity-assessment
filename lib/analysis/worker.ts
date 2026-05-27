@@ -1,4 +1,5 @@
 import { nonprofitEnrichmentService } from "@/lib/nonprofit-viability/enrichment-service";
+import { workforceCapacityAnalysisService } from "@/lib/workforce-capacity/workforce-capacity-service";
 import { getAssessment, getJob, saveJobResults, updateJob, updateJobStep } from "./job-store";
 import { buildGeneratedReport } from "./report-builder";
 
@@ -68,9 +69,20 @@ async function runAnalysisJob(jobId: string) {
       classification: enhancedAnalysis.viabilityScore.classification
     });
 
+    logStep(jobId, "workforce_capacity_analysis", {
+      memory: memorySnapshot()
+    });
+    const workforceCapacityAnalysis = await workforceCapacityAnalysisService({
+      organizationName: enhancedAnalysis.organization.legalName || assessment.profile.organization,
+      websiteUrl: enhancedAnalysis.organization.website || assessment.profile.websiteUrl,
+      enhancedAnalysis
+    });
+
     await updateJobStep(jobId, "generating_report", 88);
     logStep(jobId, "generating_report", {
       sourceCount: enhancedAnalysis.sources.length,
+      openRoles: workforceCapacityAnalysis.metrics.totalOpenPositions,
+      staffingRisk: workforceCapacityAnalysis.riskScore.level,
       memory: memorySnapshot()
     });
 
@@ -78,11 +90,12 @@ async function runAnalysisJob(jobId: string) {
       profile: assessment.profile,
       responses: assessment.responses,
       result: assessment.result,
-      enhancedAnalysis
+      enhancedAnalysis,
+      workforceCapacityAnalysis
     });
 
     job = await getJob(jobId);
-    await saveJobResults(job, enhancedAnalysis, report);
+    await saveJobResults(job, enhancedAnalysis, workforceCapacityAnalysis, report);
     logStep(jobId, "completed", { memory: memorySnapshot() });
   } catch (error) {
     console.error("Analysis job failed", {

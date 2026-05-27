@@ -82,6 +82,7 @@ export type GeneratedExecutiveReport = {
   strainDiagnosis: string;
   missionImplications: string;
   financialAnalysis?: string;
+  staffingCapacityAnalysis?: string;
   strategicSignals?: string;
   primaryStrainDrivers?: PrimaryStrainDriver[];
   topRisks: string[];
