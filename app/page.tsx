@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import {
   AssessmentResult,
   domains,
@@ -28,6 +28,14 @@ const emptyLead: Lead = {
 };
 
 type View = "assessment" | "lead" | "report";
+
+type AnalysisJobStatus = {
+  id: string;
+  status: "queued" | "running" | "completed" | "failed";
+  currentStep: string;
+  progressPercent: number;
+  errorMessage?: string | null;
+};
 
 const questionNumbers = questions.reduce<Record<string, number>>((numbers, question, index) => {
   numbers[question.id] = index + 1;
@@ -119,6 +127,8 @@ export default function Home() {
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [reportError, setReportError] = useState("");
   const [showSectionValidation, setShowSectionValidation] = useState(false);
+  const [analysisJobId, setAnalysisJobId] = useState("");
+  const [analysisJobStatus, setAnalysisJobStatus] = useState<AnalysisJobStatus | null>(null);
   const result = useMemo(() => scoreAssessment(responses), [responses]);
   const completed = questions.filter((question) => hasAnswer(question, responses)).length;
   const progress = Math.round((completed / questions.length) * 100);
@@ -149,27 +159,96 @@ export default function Home() {
     setView("report");
     setIsGeneratingReport(true);
     setReportError("");
+    setGeneratedReport(null);
+    setAnalysisJobStatus(null);
 
     try {
-      const response = await fetch("/api/generate-report", {
+      const response = await fetch("/api/analysis/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ lead, profile, responses, result })
       });
 
       if (!response.ok) {
-        throw new Error("Report generation failed.");
+        throw new Error("Analysis job could not be started.");
       }
 
-      const data = (await response.json()) as GeneratedExecutiveReport;
-      setGeneratedReport(data);
-      setLeadSaved(true);
+      const data = await response.json();
+      setAnalysisJobId(data.jobId);
+      setAnalysisJobStatus({
+        id: data.jobId,
+        status: data.status,
+        currentStep: data.currentStep,
+        progressPercent: data.progressPercent
+      });
     } catch (error) {
       console.error(error);
-      setReportError("The AI report could not be generated, so the deterministic executive report is shown instead.");
-    } finally {
+      setReportError("Enhanced analysis could not be started. Please try again.");
       setIsGeneratingReport(false);
     }
+  }
+
+  useEffect(() => {
+    if (!analysisJobId || view !== "report" || generatedReport) return;
+
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/analysis/jobs/${analysisJobId}`, { cache: "no-store" });
+        if (!response.ok) throw new Error("Unable to load job status.");
+        const job = (await response.json()) as AnalysisJobStatus;
+        if (cancelled) return;
+        setAnalysisJobStatus(job);
+
+        if (job.status === "completed") {
+          const resultsResponse = await fetch(`/api/analysis/jobs/${analysisJobId}/results`, { cache: "no-store" });
+          if (!resultsResponse.ok) throw new Error("Unable to load completed report.");
+          const results = await resultsResponse.json();
+          setGeneratedReport(results.report);
+          setLeadSaved(true);
+          setIsGeneratingReport(false);
+          return;
+        }
+
+        if (job.status === "failed") {
+          setReportError(job.errorMessage || "Enhanced analysis failed.");
+          setIsGeneratingReport(false);
+          return;
+        }
+
+        window.setTimeout(poll, 3500);
+      } catch (error) {
+        console.error(error);
+        if (!cancelled) window.setTimeout(poll, 5000);
+      }
+    };
+
+    void poll();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [analysisJobId, analysisJobStatus?.status, generatedReport, view]);
+
+  async function retryAnalysis() {
+    if (!analysisJobId) return;
+    setReportError("");
+    setIsGeneratingReport(true);
+    setGeneratedReport(null);
+
+    const response = await fetch(`/api/analysis/jobs/${analysisJobId}/retry`, { method: "POST" });
+    if (!response.ok) {
+      setReportError("Retry could not be started.");
+      setIsGeneratingReport(false);
+      return;
+    }
+
+    setAnalysisJobStatus({
+      id: analysisJobId,
+      status: "queued",
+      currentStep: "queued",
+      progressPercent: 0
+    });
   }
 
   const section = domains[currentStep];
@@ -447,6 +526,8 @@ export default function Home() {
             generatedReport={generatedReport}
             isGeneratingReport={isGeneratingReport}
             reportError={reportError}
+            analysisJob={analysisJobStatus}
+            onRetryAnalysis={retryAnalysis}
           />
         )}
       </div>
@@ -489,6 +570,23 @@ function LeadCapture({
   );
 }
 
+function readableStep(step: string) {
+  const labels: Record<string, string> = {
+    queued: "Queued. Your assessment has been saved and is waiting for analysis.",
+    identifying_organization: "Identifying the organization and matching nonprofit records.",
+    fetching_sources: "Fetching annual reports, Form 990 summaries, website content, and public records.",
+    parsing_documents: "Parsing source documents and preserving raw evidence.",
+    extracting_financials: "Extracting financial metrics and source evidence.",
+    calculating_trends: "Calculating revenue, expense, surplus, liquidity, and trend metrics.",
+    scoring_viability: "Scoring nonprofit viability and operational strain indicators.",
+    generating_report: "Generating the executive report narrative.",
+    completed: "Analysis completed.",
+    failed: "Analysis failed."
+  };
+
+  return labels[step] || "Working on the analysis.";
+}
+
 function Report({
   profile,
   responses,
@@ -497,7 +595,9 @@ function Report({
   leadSaved,
   generatedReport,
   isGeneratingReport,
-  reportError
+  reportError,
+  analysisJob,
+  onRetryAnalysis
 }: {
   profile: Profile;
   responses: Responses;
@@ -507,6 +607,8 @@ function Report({
   generatedReport: GeneratedExecutiveReport | null;
   isGeneratingReport: boolean;
   reportError: string;
+  analysisJob: AnalysisJobStatus | null;
+  onRetryAnalysis: () => void;
 }) {
   const recommendation = stageRecommendations[result.stage.number];
   const summary = generatedReport?.executiveSummary || generateExecutiveSummary(profile, result);
@@ -663,8 +765,16 @@ function Report({
 
       {isGeneratingReport && (
         <section className="rounded border border-fitgreen/40 bg-fitgreen/10 p-4">
-          <h3 className="text-lg font-bold">Generating Organization-Specific Report</h3>
-          <p className="mt-2 text-sm leading-6 text-slate">FitProof is reviewing the assessment data and available public website content to create a tailored executive narrative.</p>
+          <h3 className="text-lg font-bold">Enhanced Analysis Started</h3>
+          <p className="mt-2 text-sm leading-6 text-slate">
+            {analysisJob ? readableStep(analysisJob.currentStep) : "Preparing the analysis job."}
+          </p>
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-white">
+            <div className="h-full rounded-full bg-fitgreen transition-all" style={{ width: `${analysisJob?.progressPercent || 5}%` }} />
+          </div>
+          <p className="mt-2 text-xs font-bold uppercase tracking-[0.12em] text-slate">
+            {analysisJob?.progressPercent || 0}% complete {analysisJob?.id ? `| Job ${analysisJob.id}` : ""}
+          </p>
         </section>
       )}
 
@@ -672,6 +782,11 @@ function Report({
         <section className="rounded border border-line bg-panel p-4">
           <h3 className="text-lg font-bold">Report Generation Note</h3>
           <p className="mt-2 text-sm leading-6 text-slate">{reportError || generatedReport?.fallbackReason}</p>
+          {analysisJob?.status === "failed" && (
+            <button type="button" onClick={onRetryAnalysis} className="mt-3 min-h-10 rounded bg-blacktop px-4 text-sm font-bold text-fitgreen transition hover:bg-fitgreen hover:text-blacktop">
+              Retry analysis
+            </button>
+          )}
         </section>
       )}
 
