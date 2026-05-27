@@ -6,13 +6,25 @@ import { propublicaService } from "./propublica-service";
 import { publicRecordsService } from "./public-records-service";
 import { reportGeneratorService } from "./report-generator-service";
 import { stateRegistryService } from "./state-registry-service";
-import { EnhancedAnalysisRequest, EnhancedAnalysisResult, SourceDocument } from "./types";
+import { EnhancedAnalysisRequest, EnhancedAnalysisResult, SourceDocument, WebsiteAnalysis } from "./types";
 import { viabilityScoringService } from "./viability-scoring-service";
 import { websiteAnalysisService } from "./website-analysis-service";
 import { makeId, normalizeEin, nowIso, writeJsonRecord } from "./utils";
 
 export async function nonprofitEnrichmentService(request: EnhancedAnalysisRequest): Promise<EnhancedAnalysisResult> {
-  const organization = await nonprofitSearchService(request);
+  const organization = await safeSource("nonprofit search", nonprofitSearchService(request), {
+    id: makeId("org", request.name || request.website || "organization"),
+    legalName: request.name || null,
+    dbaNames: [],
+    ein: request.ein || null,
+    state: request.state || null,
+    address: null,
+    website: request.website || null,
+    nteeCode: null,
+    exemptionStatus: null,
+    sourceConfidence: "low" as const,
+    sources: []
+  });
   const inferredEin = normalizeEin(organization.ein || request.ein);
   const enrichedRequest = {
     ...request,
@@ -22,15 +34,15 @@ export async function nonprofitEnrichmentService(request: EnhancedAnalysisReques
     website: organization.website || request.website
   };
   const [form990Years, propublicaFallback, websiteAnalysis, websiteAuditSources, registryResults, publicRecords] = await Promise.all([
-    irs990Service(enrichedRequest),
-    propublicaService(enrichedRequest),
-    websiteAnalysisService(enrichedRequest.website),
-    findAuditDocumentsOnWebsite(enrichedRequest.website),
-    stateRegistryService(enrichedRequest.name, enrichedRequest.state, request.includeStateRegistrySearch ?? true),
-    publicRecordsService(
+    safeSource("IRS 990 enrichment", irs990Service(enrichedRequest), []),
+    safeSource("ProPublica enrichment", propublicaService(enrichedRequest), { sources: [], financialYears: [] }),
+    safeSource("website analysis", websiteAnalysisService(enrichedRequest.website), emptyWebsiteAnalysis()),
+    safeSource("website audit discovery", findAuditDocumentsOnWebsite(enrichedRequest.website), []),
+    safeSource("state registry search", stateRegistryService(enrichedRequest.name, enrichedRequest.state, request.includeStateRegistrySearch ?? true), []),
+    safeSource("public records search", publicRecordsService(
       enrichedRequest,
       request.includePublicRecordsSearch ?? true
-    )
+    ), [])
   ]);
 
   const sourceMap = new Map<string, SourceDocument>();
@@ -58,7 +70,7 @@ export async function nonprofitEnrichmentService(request: EnhancedAnalysisReques
   });
 
   const websiteAuditExtractions = (
-    await Promise.all(websiteAuditSources.slice(0, 3).map((source) => extractAuditFieldsFromSourceUrl(source)))
+    await Promise.all(websiteAuditSources.slice(0, 2).map((source) => safeSource("website audit extraction", extractAuditFieldsFromSourceUrl(source), null)))
   ).filter((extraction): extraction is NonNullable<typeof extraction> => Boolean(extraction));
   const auditExtractions = [...(request.uploadedAuditExtractions || []), ...websiteAuditExtractions];
   auditExtractions.forEach((extraction) => sourceMap.set(extraction.sourceDocument.id, extraction.sourceDocument));
@@ -89,4 +101,30 @@ export async function nonprofitEnrichmentService(request: EnhancedAnalysisReques
 
   await writeJsonRecord("enhanced-analyses", `${makeId("analysis", organization.ein || organization.legalName || "organization")}.json`, result).catch(() => undefined);
   return result;
+}
+
+async function safeSource<T>(label: string, promise: Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await promise;
+  } catch (error) {
+    console.error(`${label} failed during enhanced analysis`, error);
+    return fallback;
+  }
+}
+
+function emptyWebsiteAnalysis(): WebsiteAnalysis {
+  return {
+    missionStatement: null,
+    programDescriptions: [],
+    leadershipTeam: [],
+    boardMembers: [],
+    donationCta: null,
+    annualReportLinks: [],
+    auditFinancialLinks: [],
+    strategicPriorities: [],
+    majorFunders: [],
+    programExpansionSignals: [],
+    operationalComplexitySignals: [],
+    sources: []
+  };
 }

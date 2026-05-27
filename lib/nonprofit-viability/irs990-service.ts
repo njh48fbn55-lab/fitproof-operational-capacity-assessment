@@ -13,6 +13,8 @@ type IrsIndexRow = {
 };
 
 const USER_AGENT = "FitProof Nonprofit Viability Analyzer/1.0";
+const IRS_FETCH_TIMEOUT_MS = 6500;
+const MAX_ZIP_BYTES = 80 * 1024 * 1024;
 
 export async function irs990Service(input: NonprofitSearchInput): Promise<FinancialYear[]> {
   const ein = normalizeEin(input.ein);
@@ -61,7 +63,7 @@ async function findIrsFilingsByEin(ein: string) {
 
 async function fetchIrsIndexForYear(year: number): Promise<IrsIndexRow[]> {
   const url = `https://apps.irs.gov/pub/epostcard/990/xml/${year}/index_${year}.csv`;
-  const response = await fetch(url, { headers: { "User-Agent": USER_AGENT } });
+  const response = await fetchWithTimeout(url);
   if (!response.ok) return [];
 
   const records = parseCsv(await response.text());
@@ -86,7 +88,7 @@ async function fetchIrsXml(filing: IrsIndexRow) {
   ];
 
   for (const url of urls) {
-    const response = await fetch(url, { headers: { "User-Agent": USER_AGENT } }).catch(() => null);
+    const response = await fetchWithTimeout(url).catch(() => null);
     if (response?.ok) return response.text();
   }
 
@@ -97,25 +99,38 @@ async function fetchIrsXml(filing: IrsIndexRow) {
 }
 
 async function fetchIrsXmlFromTeosZip(filing: IrsIndexRow) {
-  const zipUrls = candidateZipUrls(filing.processingYear);
+  const zipUrls = candidateZipUrls(filing);
 
   for (const url of zipUrls) {
-    const response = await fetch(url, { headers: { "User-Agent": USER_AGENT } }).catch(() => null);
-    if (!response?.ok) continue;
+    try {
+      const response = await fetchWithTimeout(url).catch(() => null);
+      if (!response?.ok) continue;
+      const contentLength = Number(response.headers.get("content-length") || 0);
+      if (contentLength > MAX_ZIP_BYTES) continue;
 
-    const buffer = Buffer.from(await response.arrayBuffer());
-    const xml = extractXmlFromZip(buffer, filing.objectId);
-    if (xml) return xml;
+      const buffer = Buffer.from(await response.arrayBuffer());
+      if (buffer.byteLength > MAX_ZIP_BYTES) continue;
+      const xml = extractXmlFromZip(buffer, filing.objectId);
+      if (xml) return xml;
+    } catch {
+      continue;
+    }
   }
 
   return null;
 }
 
-function candidateZipUrls(year: number) {
+function candidateZipUrls(filing: IrsIndexRow) {
   const urls: string[] = [];
   const suffixes = ["A", "B", "C", "D"];
+  const year = filing.processingYear;
+  const submissionMonth = monthFromDate(filing.submissionDate);
+  const nearbyMonths = submissionMonth
+    ? [...new Set([submissionMonth, submissionMonth + 1, submissionMonth - 1].filter((month) => month >= 1 && month <= 12))]
+    : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+  const months = process.env.IRS_TEOS_EXHAUSTIVE_ZIP_LOOKUP === "true" ? Array.from({ length: 12 }, (_, index) => index + 1) : nearbyMonths;
 
-  for (let month = 1; month <= 12; month += 1) {
+  for (const month of months) {
     for (const suffix of suffixes) {
       urls.push(`https://apps.irs.gov/pub/epostcard/990/xml/${year}/${year}_TEOS_XML_${String(month).padStart(2, "0")}${suffix}.zip`);
     }
@@ -129,6 +144,28 @@ function candidateZipUrls(year: number) {
   }
 
   return urls;
+}
+
+function monthFromDate(value: string) {
+  const iso = value.match(/^\d{4}-(\d{2})-\d{2}/)?.[1];
+  if (iso) return Number(iso);
+  const slash = value.match(/^(\d{1,2})\/\d{1,2}\/\d{4}/)?.[1];
+  if (slash) return Number(slash);
+  return null;
+}
+
+async function fetchWithTimeout(url: string) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), IRS_FETCH_TIMEOUT_MS);
+
+  try {
+    return await fetch(url, {
+      headers: { "User-Agent": USER_AGENT },
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function extractXmlFromZip(buffer: Buffer, objectId: string) {
