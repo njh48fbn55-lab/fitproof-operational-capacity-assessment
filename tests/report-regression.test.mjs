@@ -135,9 +135,25 @@ test("requisition age uses postedDate, then firstSeenAt, and stays unavailable w
 });
 
 test("PDF uses the same rendered gauge component and export labels are simplified", () => {
-  assert.match(page, /reportElement\.outerHTML/);
+  assert.match(page, /clonedReport\.outerHTML/);
+  assert.match(page, /querySelectorAll\("details"\)\.forEach\(\(details\) => details\.setAttribute\("open", "open"\)\)/);
+  assert.match(page, /getLogoDataUri/);
   assert.match(page, /Download PDF/);
   assert.match(page, /Download Word Document/);
   assert.equal(page.includes("Download Branded PDF"), false);
   assert.equal(page.includes("Download Branded Word Document"), false);
+});
+
+test("loading state hides unfinished report visuals", () => {
+  assert.match(page, /const showLoadingOnly = isGeneratingReport && !generatedReport/);
+  assert.match(page, /!showLoadingOnly && intelligence/);
+});
+
+test("export and web charts include requested labels and values", () => {
+  assert.match(page, /P\/L/);
+  assert.match(page, /shortAxisLabel/);
+  assert.match(page, /wordRevenueTrendHtml/);
+  assert.match(page, /wordRadarHtml/);
+  assert.match(page, /\{category\} -/);
+  assert.match(page, /gauge-section/);
 });

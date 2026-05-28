@@ -88,6 +88,30 @@ function listItems(items: string[]) {
   return items.length ? items.map((item) => `<li>${escapeHtml(item)}</li>`).join("") : "<li>No items available.</li>";
 }
 
+async function getLogoDataUri() {
+  const response = await fetch("/fitproof-logo-trimmed.png");
+  const blob = await response.blob();
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+function documentStylesForExport() {
+  return [...document.querySelectorAll('link[rel="stylesheet"], style')]
+    .map((element) => {
+      if (element instanceof HTMLLinkElement) {
+        const clone = element.cloneNode() as HTMLLinkElement;
+        clone.href = element.href;
+        return clone.outerHTML;
+      }
+      return element.outerHTML;
+    })
+    .join("\n");
+}
+
 function wordGaugeHtml(label: string, value: number) {
   const clamped = Math.max(0, Math.min(100, value));
   return `
@@ -101,6 +125,75 @@ function wordGaugeHtml(label: string, value: number) {
       </div>
       <div class="word-gauge-scale"><span>0</span><span>50</span><span>100</span></div>
     </div>
+  `;
+}
+
+function wordRevenueTrendHtml(points: NonNullable<GeneratedExecutiveReport["operationalIntelligence"]>["financialTrend"]) {
+  const values = points.flatMap((point) => [point.revenue, point.expenses]).filter((value): value is number => value !== null);
+  const max = Math.max(...values, 1);
+  const chartPoints = points.length ? points : [];
+  if (!chartPoints.length) return "<p>No revenue and expense trend data was available.</p>";
+  const coords = (key: "revenue" | "expenses") =>
+    chartPoints
+      .map((point, index) => {
+        const x = chartPoints.length === 1 ? 46 : 46 + (index * 440) / (chartPoints.length - 1);
+        const y = 180 - (((point[key] || 0) / max) * 120);
+        return `${x},${y}`;
+      })
+      .join(" ");
+  const labels = chartPoints
+    .map((point, index) => {
+      const x = chartPoints.length === 1 ? 46 : 46 + (index * 440) / (chartPoints.length - 1);
+      const revenueY = 180 - (((point.revenue || 0) / max) * 120);
+      const expenseY = 180 - (((point.expenses || 0) / max) * 120);
+      return `
+        <text x="${x - 18}" y="205" font-size="10" font-weight="700" fill="#596057">${escapeHtml(point.fiscalYear)}</text>
+        ${point.revenue === null ? "" : `<text x="${x - 26}" y="${revenueY - 8}" font-size="9" fill="#315f18">${escapeHtml(formatCompactMoney(point.revenue))}</text>`}
+        ${point.expenses === null ? "" : `<text x="${x - 26}" y="${expenseY + 16}" font-size="9" fill="#9a2e2e">${escapeHtml(formatCompactMoney(point.expenses))}</text>`}
+        ${point.surplusDeficit === null ? "" : `<text x="${x - 30}" y="222" font-size="9" fill="#111111">P/L ${escapeHtml(formatCompactMoney(point.surplusDeficit))}</text>`}
+      `;
+    })
+    .join("");
+
+  return `
+    <svg viewBox="0 0 540 235" width="100%" height="235" role="img">
+      <rect x="0" y="0" width="540" height="235" fill="#f7faf4" rx="8" />
+      <polyline points="${coords("revenue")}" fill="none" stroke="#67a629" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+      <polyline points="${coords("expenses")}" fill="none" stroke="#c94b4b" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+      ${labels}
+    </svg>
+  `;
+}
+
+function wordRadarHtml(benchmarks: NonNullable<GeneratedExecutiveReport["operationalIntelligence"]>["benchmarkHighlights"]) {
+  const items = benchmarks.slice(0, 5);
+  if (!items.length) return "<p>Peer benchmark radar was unavailable because benchmark metrics were not found.</p>";
+  const center = 115;
+  const radius = 72;
+  const axes = items.map((item, index) => {
+    const angle = (Math.PI * 2 * index) / Math.max(items.length, 1) - Math.PI / 2;
+    const percentile = item.percentile || 0;
+    return {
+      item,
+      endX: center + Math.cos(angle) * radius,
+      endY: center + Math.sin(angle) * radius,
+      valueX: center + Math.cos(angle) * radius * (percentile / 100),
+      valueY: center + Math.sin(angle) * radius * (percentile / 100),
+      labelX: center + Math.cos(angle) * (radius + 24),
+      labelY: center + Math.sin(angle) * (radius + 20)
+    };
+  });
+  const polygon = axes.map((axis) => `${axis.valueX},${axis.valueY}`).join(" ");
+  const labels = axes.map((axis) => `<text x="${axis.labelX - 34}" y="${axis.labelY}" font-size="9" font-weight="700" fill="#111111">${escapeHtml(shortAxisLabel(axis.item.metric))}</text>`).join("");
+  return `
+    <svg viewBox="0 0 230 230" width="260" height="260" role="img">
+      <circle cx="${center}" cy="${center}" r="${radius * 0.33}" fill="none" stroke="#d8ddd3" />
+      <circle cx="${center}" cy="${center}" r="${radius * 0.66}" fill="none" stroke="#d8ddd3" />
+      <circle cx="${center}" cy="${center}" r="${radius}" fill="none" stroke="#d8ddd3" />
+      ${axes.map((axis) => `<line x1="${center}" y1="${center}" x2="${axis.endX}" y2="${axis.endY}" stroke="#d8ddd3" />`).join("")}
+      <polygon points="${polygon}" fill="#67a62955" stroke="#67a629" stroke-width="3" />
+      ${labels}
+    </svg>
   `;
 }
 
@@ -953,6 +1046,7 @@ function Report({
   const reportId = `FP-OCA-${date.replace(/[^A-Za-z0-9]/g, "").toUpperCase()}`;
   const [pdfExportError, setPdfExportError] = useState("");
   const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
+  const showLoadingOnly = isGeneratingReport && !generatedReport;
 
   useEffect(() => {
     if (!isGeneratingReport) return;
@@ -972,22 +1066,59 @@ function Report({
 
     const organization = profile.organization || "Organization";
     const fileName = `${organization.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "fitproof"}-operational-capacity-report.pdf`;
+    const logoDataUri = await getLogoDataUri().catch(() => "");
+    const clonedReport = reportElement.cloneNode(true) as HTMLElement;
+    clonedReport.querySelectorAll("details").forEach((details) => details.setAttribute("open", "open"));
+    clonedReport.querySelectorAll("img").forEach((image) => {
+      if (logoDataUri && image.getAttribute("src")?.includes("fitproof-logo")) image.setAttribute("src", logoDataUri);
+    });
+    clonedReport.classList.add("pdf-export-report");
+    const appStyles = documentStylesForExport();
     const html = `
       <!doctype html>
       <html>
         <head>
           <meta charset="utf-8" />
           <title>${escapeHtml(organization)} Operational Capacity Report</title>
+          ${appStyles}
           <style>
-            body { margin: 0; font-family: Arial, sans-serif; color: #111111; background: #ffffff; }
-            #generated-report { max-width: none !important; border: 0 !important; box-shadow: none !important; }
+            body { margin: 0; font-family: Arial, sans-serif; color: #111111; background: #f6f8f3; }
+            #generated-report { max-width: none !important; border: 0 !important; box-shadow: none !important; padding: 18px !important; }
             button, .print\\:hidden { display: none !important; }
             .bg-fitgreen { background-color: #67a629 !important; }
             .text-fitgreen { color: #67a629 !important; }
+            .pdf-export-report > section,
+            .pdf-export-report > div,
+            .pdf-export-report details {
+              break-inside: avoid;
+            }
+            .pdf-export-report .gauge-section {
+              display: grid !important;
+              grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+              gap: 8px !important;
+            }
+            .pdf-export-report .gauge-card {
+              padding: 10px !important;
+            }
+            .pdf-export-report .gauge-card svg {
+              max-height: 94px !important;
+            }
+            .pdf-export-report .brand-box {
+              border-color: #67a62955 !important;
+              background: #f2f7ee !important;
+            }
+            .pdf-export-report details {
+              border-color: #d8ddd3 !important;
+              background: #ffffff !important;
+            }
+            .pdf-export-report summary {
+              list-style: none !important;
+              color: #111111 !important;
+            }
             footer { margin-top: 24px; border-top: 1px solid #d8ddd3; padding-top: 10px; color: #596057; font-size: 11px; }
           </style>
         </head>
-        <body>${reportElement.outerHTML}<footer>FitProof | ${escapeHtml(date)} | ${escapeHtml(reportId)}</footer></body>
+        <body>${clonedReport.outerHTML}<footer>FitProof | ${escapeHtml(date)} | ${escapeHtml(reportId)}</footer></body>
       </html>
     `;
 
@@ -1015,9 +1146,10 @@ function Report({
     }
   }
 
-  function downloadWordReport() {
+  async function downloadWordReport() {
     const organization = profile.organization || "Organization";
     const fileName = `${organization.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "fitproof"}-operational-capacity-report.doc`;
+    const logoDataUri = await getLogoDataUri().catch(() => "");
     const sectionRows = result.domainScores
       .map(
         (domain) => `
@@ -1049,6 +1181,9 @@ function Report({
             .eyebrow { color: #67a629; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }
             .meta { color: #4b5563; font-size: 11px; }
             .score { display: inline-block; margin-right: 18px; font-weight: bold; }
+            .cover { border: 1px solid #d8ddd3; background: #f2f7ee; padding: 14px; }
+            .logo { width: 108px; height: auto; }
+            .brand-box { border: 1px solid #d8ddd3; background: #f7faf4; padding: 10px; margin-top: 10px; }
             .gauge-grid { display: table; width: 100%; border-spacing: 8px; margin-top: 10px; }
             .gauge-cell { display: table-cell; width: 33.33%; border: 1px solid #d8ddd3; padding: 10px; vertical-align: top; }
             .word-gauge-head { display: flex; justify-content: space-between; font-size: 12px; }
@@ -1061,11 +1196,14 @@ function Report({
           </style>
         </head>
         <body>
-          <p class="eyebrow">FitProof Executive Diagnostic</p>
-          <h1>Operational Capacity Report</h1>
-          <p class="meta">${escapeHtml(organization)} | ${escapeHtml(date)} | Report ID ${escapeHtml(reportId)}</p>
-          <p class="meta">Email verified: ${escapeHtml(lead.email || "Not provided")}</p>
-          <p class="meta">Website reviewed: ${escapeHtml(profile.websiteUrl || "Not provided")}</p>
+          <div class="cover">
+            ${logoDataUri ? `<img class="logo" src="${logoDataUri}" alt="FitProof" />` : ""}
+            <p class="eyebrow">FitProof Executive Diagnostic</p>
+            <h1>Operational Capacity Report</h1>
+            <p class="meta">${escapeHtml(organization)} | ${escapeHtml(date)} | Report ID ${escapeHtml(reportId)}</p>
+            <p class="meta">Email verified: ${escapeHtml(lead.email || "Not provided")}</p>
+            <p class="meta">Website reviewed: ${escapeHtml(profile.websiteUrl || "Not provided")}</p>
+          </div>
 
           ${
             intelligence
@@ -1088,6 +1226,10 @@ function Report({
                 <h2>Key Findings</h2><ul>${listItems(intelligence.keyFindings)}</ul>
                 <h2>Benchmark Highlights</h2>
                 <table><thead><tr><th>Metric</th><th>Organization</th><th>Peer Median</th><th>Percentile</th></tr></thead><tbody>${intelligence.benchmarkHighlights.map((item) => `<tr><td>${escapeHtml(item.metric)}</td><td>${escapeHtml(item.organizationDisplay)}</td><td>${escapeHtml(item.peerMedianDisplay)}</td><td>${escapeHtml(item.percentile === null ? "Unavailable" : `${item.percentile}th`)}</td></tr>`).join("")}</tbody></table>
+                <h2>5-Year Revenue / Expense Trend</h2>
+                <div class="brand-box">${wordRevenueTrendHtml(intelligence.financialTrend)}</div>
+                <h2>Peer Benchmark Radar</h2>
+                <div class="brand-box">${wordRadarHtml(intelligence.benchmarkHighlights)}</div>
                 <h2>Executive KPIs</h2>
                 ${intelligence.executiveKpis.map((group) => `<h3>${escapeHtml(group.title)}</h3><table><thead><tr><th>KPI</th><th>Value</th><th>Source</th></tr></thead><tbody>${group.items.map((item) => `<tr><td>${escapeHtml(item.label)}</td><td>${escapeHtml(item.value)}</td><td>${escapeHtml(item.source)}</td></tr>`).join("")}</tbody></table>`).join("")}
                 <h2>Primary Operational Risks</h2><ul>${listItems(intelligence.primaryOperationalRisks)}</ul>
@@ -1210,7 +1352,7 @@ function Report({
 
       {isGeneratingReport && <FitProofLoadingScreen message={loadingMessages[loadingMessageIndex]} progressPercent={analysisJob?.progressPercent || 8} />}
 
-      {(reportError || generatedReport?.fallbackReason) && (
+      {!showLoadingOnly && (reportError || generatedReport?.fallbackReason) && (
         <section className="rounded border border-line bg-panel p-4">
           <h3 className="text-lg font-bold">Report Generation Note</h3>
           <p className="mt-2 text-sm leading-6 text-slate">{reportError || generatedReport?.fallbackReason}</p>
@@ -1222,9 +1364,9 @@ function Report({
         </section>
       )}
 
-      {intelligence ? (
+      {!showLoadingOnly && intelligence ? (
         <OperationalIntelligenceView intelligence={intelligence} sources={generatedReport?.sources || []} />
-      ) : (
+      ) : !showLoadingOnly ? (
         <>
       <section className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(220px,1fr)]">
         <OperationalGauge strain={result.riskScore} />
@@ -1406,9 +1548,9 @@ function Report({
         </div>
       </section>
         </>
-      )}
+      ) : null}
 
-      {generatedReport && !intelligence && (
+      {!showLoadingOnly && generatedReport && !intelligence && (
         <section className="grid gap-4 md:grid-cols-2">
           <div className="rounded border border-line p-4">
             <h3 className="text-lg font-bold">Public Signals Reviewed</h3>
@@ -1450,7 +1592,7 @@ function OperationalIntelligenceView({
 
   return (
     <div className="grid gap-5">
-      <section className="grid gap-3 md:grid-cols-3">
+      <section className="gauge-section grid gap-3 md:grid-cols-3">
         <ExecutiveGaugeCard label="Operational Strain" value={snapshot.operationalStrainScore} mode="strain" detail={snapshot.operationalStrainSpiralStage} />
         <ExecutiveGaugeCard label="Growth Readiness" value={snapshot.growthReadinessScore} mode="health" detail={intelligence.growthReadinessScore.classification} />
         <ExecutiveGaugeCard label="Organizational Health" value={snapshot.organizationalHealthScore} mode="health" detail={`${intelligence.operationalStrainSpiral.stageConfidence}% stage confidence`} />
@@ -1481,7 +1623,7 @@ function OperationalIntelligenceView({
         </div>
       </section>
 
-      <section className="rounded border border-fitgreen/40 bg-fitgreen/10 p-4">
+      <section className="brand-box rounded border border-fitgreen/40 bg-fitgreen/10 p-4">
         <p className="text-xs font-bold uppercase tracking-[0.16em] text-fitgreen">Current Spiral Stage</p>
         <h3 className="mt-2 text-2xl font-bold">{intelligence.operationalStrainSpiral.currentStage}</h3>
         <p className="mt-2 text-sm leading-6 text-slate">{intelligence.operationalStrainSpiral.stageDescription}</p>
@@ -1525,12 +1667,12 @@ function OperationalIntelligenceView({
       </section>
 
       <section className="grid gap-4 md:grid-cols-[1fr_1.15fr]">
-        <div className="rounded border border-line p-4">
+        <div className="brand-box rounded border border-line p-4">
           <h3 className="text-lg font-bold">Organizational Health Score</h3>
           <div className="mt-3 grid gap-3">
             {categoryScores.map(([category, score]) => (
               <div key={category} className="grid grid-cols-[150px_1fr_44px] items-center gap-3 text-sm">
-                <span className="font-semibold text-slate">{category}</span>
+                <span className="font-semibold text-slate">{category} -</span>
                 <Meter value={score} />
                 <span className="text-right font-bold tabular-nums">{score}</span>
               </div>
@@ -1762,7 +1904,7 @@ function ExecutiveGaugeCard({ label, value, mode, detail }: { label: string; val
   const gradientId = `gauge-${label.replace(/\s+/g, "-").toLowerCase()}`;
 
   return (
-    <div className="rounded border border-line bg-panel p-4">
+    <div className="gauge-card rounded border border-line bg-panel p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate">{label}</p>
@@ -1824,13 +1966,34 @@ function RevenueExpenseTrendChart({ points }: { points: NonNullable<GeneratedExe
         </div>
       </div>
       {chartPoints.length ? (
-        <svg viewBox="0 0 300 180" className="mt-3 h-auto w-full" role="img" aria-label="Revenue and expense trend chart">
+        <svg viewBox="0 0 300 195" className="mt-3 h-auto w-full" role="img" aria-label="Revenue and expense trend chart">
           {[40, 80, 120, 160].map((y) => <line key={y} x1="28" y1={y} x2="280" y2={y} stroke="#d8ddd3" strokeWidth="1" />)}
           <polyline points={coords("revenue")} fill="none" stroke="#67a629" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
           <polyline points={coords("expenses")} fill="none" stroke="#c94b4b" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
           {chartPoints.map((point, index) => {
             const x = chartPoints.length === 1 ? 40 : 32 + (index * 236) / (chartPoints.length - 1);
-            return <text key={point.fiscalYear} x={x - 10} y="172" fontSize="10" fontWeight="700" fill="#596057">{point.fiscalYear}</text>;
+            const revenueY = 150 - (((point.revenue || 0) / max) * 110);
+            const expenseY = 150 - (((point.expenses || 0) / max) * 110);
+            return (
+              <g key={point.fiscalYear}>
+                <text x={x - 10} y="172" fontSize="10" fontWeight="700" fill="#596057">{point.fiscalYear}</text>
+                {point.revenue !== null && (
+                  <>
+                    <circle cx={x} cy={revenueY} r="3" fill="#67a629" />
+                    <text x={x - 18} y={Math.max(12, revenueY - 8)} fontSize="8.5" fontWeight="700" fill="#315f18">{formatCompactMoney(point.revenue)}</text>
+                  </>
+                )}
+                {point.expenses !== null && (
+                  <>
+                    <circle cx={x} cy={expenseY} r="3" fill="#c94b4b" />
+                    <text x={x - 18} y={Math.min(158, expenseY + 14)} fontSize="8.5" fontWeight="700" fill="#9a2e2e">{formatCompactMoney(point.expenses)}</text>
+                  </>
+                )}
+                {point.surplusDeficit !== null && (
+                  <text x={x - 18} y="184" fontSize="8" fontWeight="700" fill="#111">P/L {formatCompactMoney(point.surplusDeficit)}</text>
+                )}
+              </g>
+            );
           })}
         </svg>
       ) : (
@@ -1838,6 +2001,16 @@ function RevenueExpenseTrendChart({ points }: { points: NonNullable<GeneratedExe
       )}
     </div>
   );
+}
+
+function formatCompactMoney(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return "N/A";
+  const abs = Math.abs(value);
+  const sign = value < 0 ? "-" : "";
+  if (abs >= 1_000_000_000) return `${sign}$${(abs / 1_000_000_000).toFixed(1)}B`;
+  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1_000) return `${sign}$${Math.round(abs / 1_000)}K`;
+  return `${sign}$${Math.round(abs)}`;
 }
 
 function LiquidityBenchmarkChart({ benchmarks }: { benchmarks: NonNullable<GeneratedExecutiveReport["operationalIntelligence"]>["benchmarkHighlights"] }) {
@@ -1873,7 +2046,9 @@ function PeerBenchmarkRadarChart({ benchmarks }: { benchmarks: NonNullable<Gener
       endX: center + Math.cos(angle) * radius,
       endY: center + Math.sin(angle) * radius,
       valueX: center + Math.cos(angle) * radius * ((item.percentile || 0) / 100),
-      valueY: center + Math.sin(angle) * radius * ((item.percentile || 0) / 100)
+      valueY: center + Math.sin(angle) * radius * ((item.percentile || 0) / 100),
+      labelX: center + Math.cos(angle) * (radius + 25),
+      labelY: center + Math.sin(angle) * (radius + 20)
     };
   });
   const polygon = axes.map((axis) => `${axis.valueX},${axis.valueY}`).join(" ");
@@ -1887,6 +2062,11 @@ function PeerBenchmarkRadarChart({ benchmarks }: { benchmarks: NonNullable<Gener
             {[0.33, 0.66, 1].map((scale) => <circle key={scale} cx={center} cy={center} r={radius * scale} fill="none" stroke="#d8ddd3" />)}
             {axes.map((axis) => <line key={axis.item.metric} x1={center} y1={center} x2={axis.endX} y2={axis.endY} stroke="#d8ddd3" />)}
             <polygon points={polygon} fill="#67a62955" stroke="#67a629" strokeWidth="3" />
+            {axes.map((axis) => (
+              <text key={`${axis.item.metric}-axis`} x={axis.labelX - 26} y={axis.labelY} fontSize="8.5" fontWeight="700" fill="#111">
+                {shortAxisLabel(axis.item.metric)}
+              </text>
+            ))}
           </svg>
           <ul className="grid gap-2 text-sm text-slate">
             {items.map((item) => (
@@ -1899,6 +2079,19 @@ function PeerBenchmarkRadarChart({ benchmarks }: { benchmarks: NonNullable<Gener
       )}
     </div>
   );
+}
+
+function shortAxisLabel(metric: string) {
+  return metric
+    .replace(/Months Cash on Hand/i, "Cash")
+    .replace(/Surplus Margin/i, "Surplus")
+    .replace(/Fundraising Efficiency/i, "Fundraising")
+    .replace(/Program Expense Ratio/i, "Program")
+    .replace(/Admin Expense Ratio/i, "Admin")
+    .replace(/Revenue Growth/i, "Revenue")
+    .replace(/Liquidity Ratio/i, "Liquidity")
+    .replace(/Open Position Ratio/i, "Hiring")
+    .slice(0, 14);
 }
 
 function WorkforceCapacityKpis({ groups }: { groups: NonNullable<GeneratedExecutiveReport["operationalIntelligence"]>["executiveKpis"] }) {
