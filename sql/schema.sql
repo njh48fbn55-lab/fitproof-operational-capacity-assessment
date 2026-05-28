@@ -53,3 +53,25 @@ CREATE TABLE IF NOT EXISTS export_runs (
   row_count INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+CREATE TABLE IF NOT EXISTS goodwill_affiliates (
+  ein TEXT PRIMARY KEY,
+  legal_name TEXT,
+  common_name TEXT,
+  city TEXT,
+  state TEXT,
+  latest_filing_year INTEGER,
+  latest_revenue NUMERIC,
+  latest_expenses NUMERIC,
+  latest_surplus_deficit NUMERIC,
+  total_assets NUMERIC,
+  total_liabilities NUMERIC,
+  source TEXT,
+  source_url TEXT,
+  irs_filing_url TEXT,
+  confidence_score TEXT,
+  pulled_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS goodwill_affiliates_revenue_idx ON goodwill_affiliates (latest_revenue DESC NULLS LAST);
+CREATE INDEX IF NOT EXISTS goodwill_affiliates_confidence_idx ON goodwill_affiliates (confidence_score);

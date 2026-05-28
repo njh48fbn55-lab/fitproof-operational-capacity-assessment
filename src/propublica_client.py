@@ -87,6 +87,7 @@ class ProPublicaClient:
             "ein": ein,
             "name": organization.get("name") or organization.get("organization_name") or f"EIN {ein}",
             "state": organization.get("state") or organization.get("address_state"),
+            "city": organization.get("city") or organization.get("address_city"),
             "ntee_category": organization.get("ntee_code") or organization.get("ntee_category"),
             "source_url": organization.get("propublica_url") or f"https://projects.propublica.org/nonprofits/organizations/{ein}",
         }

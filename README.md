@@ -17,6 +17,7 @@ This is not a public-facing UI.
 - Prioritizes organizations that moved from profitable to unprofitable over the available five-year window.
 - Exports CSV files named `fitproof_nonprofit_loss_leads_YYYY-MM-DD.csv`.
 - Emails the CSV export to `sean@fit-proof.com` when `RESEND_API_KEY` is configured.
+- Builds a Goodwill affiliate revenue ranking from latest available Form 990 data.
 
 Form 990 data often lags by 12-24 months, so the most recent available filing may not be the current calendar year.
 
@@ -32,6 +33,7 @@ Form 990 data often lags by 12-24 months, so the most recent available filing ma
 - `src/scoring.py`: Eligibility and priority scoring.
 - `src/export.py`: CSV export.
 - `src/email_delivery.py`: Resend email delivery for internal CSV exports.
+- `src/goodwill_affiliates.py`: Goodwill affiliate discovery, validation, ranking, and export.
 - `src/main.py`: Command-line ETL runner.
 
 ## Database Tables
@@ -40,6 +42,7 @@ Form 990 data often lags by 12-24 months, so the most recent available filing ma
 - `filings`
 - `lead_scores`
 - `export_runs`
+- `goodwill_affiliates`
 
 ## Local Setup
 
@@ -91,6 +94,56 @@ Export the internal full version:
 
 ```bash
 python src/main.py --export full
+```
+
+## Goodwill Affiliate Revenue Ranking
+
+The Goodwill module ranks U.S. Goodwill member organizations and affiliates by latest available annual revenue. Revenue rankings are based on the latest available Form 990 data from ProPublica Nonprofit Explorer, with IRS TEOS/Form 990 bulk data available as a backup when configured. Form 990 data may lag by 12-24 months.
+
+The module searches for organization names containing:
+
+- `Goodwill Industries`
+- `Goodwill of`
+- `Goodwill Easterseals`
+- `Easterseals Goodwill`
+- `Goodwill Industries of`
+
+It excludes Goodwill Industries International by default, separate Goodwill foundations, thrift stores, branches, donation centers, local store listings, and duplicate EINs. The Goodwill.org locator is used only as discovery context because it may identify service territories or locations rather than EIN-level Form 990 entities. ProPublica/IRS filings are the source of truth for revenue.
+
+Run the Goodwill affiliate ranking:
+
+```bash
+python src/main.py --goodwill-affiliates
+```
+
+Export high-confidence affiliates ranked by revenue:
+
+```bash
+python src/main.py --goodwill-affiliates --export
+```
+
+Include Goodwill Industries International:
+
+```bash
+python src/main.py --goodwill-affiliates --include-international
+```
+
+Only include affiliates with at least `$10M` latest revenue:
+
+```bash
+python src/main.py --goodwill-affiliates --min-revenue 10000000
+```
+
+Export medium-confidence records too for manual review:
+
+```bash
+python src/main.py --goodwill-affiliates --export full
+```
+
+The CSV is saved as:
+
+```text
+exports/goodwill_affiliates_ranked_by_revenue_YYYY-MM-DD.csv
 ```
 
 ## Discovery Inputs
@@ -218,6 +271,15 @@ python src/main.py --export names-only
 ```
 
 The export command saves the CSV in `exports/` and emails it to `LEAD_EXPORT_EMAIL_TO`.
+
+To build the Goodwill affiliate ranking on the Droplet:
+
+```bash
+source .venv/bin/activate
+python src/main.py --init-db
+python src/main.py --goodwill-affiliates --min-revenue 10000000
+python src/main.py --goodwill-affiliates --min-revenue 10000000 --export
+```
 
 Go back to your Mac:
 

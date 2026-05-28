@@ -145,3 +145,68 @@ def insert_export_run(conn, export_type: str, file_path: Path, row_count: int) -
             """,
             (export_type, str(file_path), row_count),
         )
+
+
+def upsert_goodwill_affiliate(conn, affiliate: dict[str, Any]) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO goodwill_affiliates (
+              ein, legal_name, common_name, city, state, latest_filing_year,
+              latest_revenue, latest_expenses, latest_surplus_deficit,
+              total_assets, total_liabilities, source, source_url,
+              irs_filing_url, confidence_score, pulled_at
+            )
+            VALUES (
+              %(ein)s, %(legal_name)s, %(common_name)s, %(city)s, %(state)s,
+              %(latest_filing_year)s, %(latest_revenue)s, %(latest_expenses)s,
+              %(latest_surplus_deficit)s, %(total_assets)s, %(total_liabilities)s,
+              %(source)s, %(source_url)s, %(irs_filing_url)s, %(confidence_score)s, NOW()
+            )
+            ON CONFLICT (ein) DO UPDATE SET
+              legal_name = EXCLUDED.legal_name,
+              common_name = EXCLUDED.common_name,
+              city = COALESCE(EXCLUDED.city, goodwill_affiliates.city),
+              state = COALESCE(EXCLUDED.state, goodwill_affiliates.state),
+              latest_filing_year = EXCLUDED.latest_filing_year,
+              latest_revenue = EXCLUDED.latest_revenue,
+              latest_expenses = EXCLUDED.latest_expenses,
+              latest_surplus_deficit = EXCLUDED.latest_surplus_deficit,
+              total_assets = EXCLUDED.total_assets,
+              total_liabilities = EXCLUDED.total_liabilities,
+              source = EXCLUDED.source,
+              source_url = EXCLUDED.source_url,
+              irs_filing_url = COALESCE(EXCLUDED.irs_filing_url, goodwill_affiliates.irs_filing_url),
+              confidence_score = EXCLUDED.confidence_score,
+              pulled_at = NOW()
+            """,
+            affiliate,
+        )
+
+
+def ranked_goodwill_affiliates(conn, min_revenue=None, include_medium: bool = False) -> list[dict[str, Any]]:
+    confidence_filter = ("high", "medium") if include_medium else ("high",)
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+              legal_name AS nonprofit_name,
+              ein,
+              city,
+              state,
+              latest_filing_year,
+              latest_revenue,
+              latest_expenses,
+              latest_surplus_deficit AS surplus_deficit,
+              total_assets,
+              total_liabilities,
+              source_url,
+              confidence_score
+            FROM goodwill_affiliates
+            WHERE confidence_score = ANY(%s)
+              AND (%s::numeric IS NULL OR latest_revenue >= %s::numeric)
+            ORDER BY latest_revenue DESC NULLS LAST, legal_name ASC
+            """,
+            (list(confidence_filter), min_revenue, min_revenue),
+        )
+        return list(cur.fetchall())

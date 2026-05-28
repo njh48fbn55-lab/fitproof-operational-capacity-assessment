@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import argparse
 import logging
+from decimal import Decimal
 
 from config import load_settings
 from db import connect, fetch_filings, init_schema, upsert_filing, upsert_lead_score, upsert_organization
 from export import export_leads
+from goodwill_affiliates import run_goodwill_affiliates
 from irs_client import IRSClient
 from propublica_client import ProPublicaClient
 from scoring import score_lead
@@ -19,8 +21,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="FitProof internal nonprofit loss lead-discovery ETL")
     parser.add_argument("--source", choices=["propublica", "irs"], help="Primary source to run for this ETL pass.")
     parser.add_argument("--limit", type=int, default=1000, help="Maximum EINs to process.")
-    parser.add_argument("--export", choices=["names-only", "full"], help="Export qualifying leads to CSV.")
+    parser.add_argument("--export", nargs="?", const="names-only", choices=["names-only", "full"], help="Export qualifying leads to CSV. Use --export full for internal columns or medium-confidence Goodwill review rows.")
     parser.add_argument("--init-db", action="store_true", help="Create or update database tables before running.")
+    parser.add_argument("--goodwill-affiliates", action="store_true", help="Build or export the Goodwill affiliate revenue ranking.")
+    parser.add_argument("--include-international", action="store_true", help="Include Goodwill Industries International in Goodwill affiliate ranking.")
+    parser.add_argument("--min-revenue", type=Decimal, help="Minimum latest revenue for Goodwill affiliate ranking.")
     return parser.parse_args()
 
 
@@ -33,6 +38,21 @@ def main() -> None:
         init_schema(settings)
 
     with connect(settings) as conn:
+        if args.goodwill_affiliates:
+            file_path = run_goodwill_affiliates(
+                conn,
+                settings,
+                include_international=args.include_international,
+                min_revenue=args.min_revenue,
+                export=args.export is not None,
+                full_export=args.export == "full",
+            )
+            if file_path:
+                logger.info("Goodwill affiliate export complete", extra={"file_path": str(file_path)})
+            else:
+                logger.info("Goodwill affiliate ranking updated")
+            return
+
         if args.export:
             file_path = export_leads(conn, settings, args.export)
             logger.info("Export complete", extra={"file_path": str(file_path)})
