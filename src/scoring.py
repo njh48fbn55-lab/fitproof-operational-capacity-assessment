@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -124,5 +125,17 @@ def growth_rate(current: Decimal, previous: Any) -> Decimal:
 def serializable(payload: dict[str, Any]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in payload.items():
-        result[key] = str(value) if isinstance(value, Decimal) else value
+        result[key] = json_safe(value)
     return result
+
+
+def json_safe(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return str(value)
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if isinstance(value, dict):
+        return {key: json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [json_safe(item) for item in value]
+    return value
