@@ -25,12 +25,21 @@ export function staffingMetricsService(roles: CareersRole[], workforceSize: Work
   };
 }
 
-export function requisitionAgeDays(role: Pick<CareersRole, "postedDate" | "firstSeenAt">) {
-  const raw = role.postedDate || role.firstSeenAt;
+export function requisitionAgeDays(role: Pick<CareersRole, "postedDate" | "firstSeenAt" | "lastSeenAt">) {
+  const raw = role.postedDate || historicalFirstSeenAt(role);
   if (!raw) return null;
   const date = new Date(raw);
   if (!Number.isFinite(date.getTime())) return null;
   return Math.max(0, Math.round((Date.now() - date.getTime()) / 86400000));
+}
+
+function historicalFirstSeenAt(role: Pick<CareersRole, "firstSeenAt" | "lastSeenAt">) {
+  if (!role.firstSeenAt) return null;
+  if (!role.lastSeenAt) return role.firstSeenAt;
+  const firstSeenDate = new Date(role.firstSeenAt);
+  const lastSeenDate = new Date(role.lastSeenAt);
+  if (!Number.isFinite(firstSeenDate.getTime()) || !Number.isFinite(lastSeenDate.getTime())) return null;
+  return firstSeenDate.toDateString() === lastSeenDate.toDateString() ? null : role.firstSeenAt;
 }
 
 function percentOlderThan(items: Array<{ age: number }>, days: number) {

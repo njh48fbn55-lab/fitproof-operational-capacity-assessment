@@ -197,6 +197,47 @@ function wordRadarHtml(benchmarks: NonNullable<GeneratedExecutiveReport["operati
   `;
 }
 
+const spiralStages = [
+  "Stable Foundation",
+  "Emerging Complexity",
+  "Reactive Scaling",
+  "Operational Strain",
+  "Capacity Constraint",
+  "Sustainability Risk"
+] as const;
+
+function spiralStageNumber(stage: string) {
+  const index = spiralStages.findIndex((item) => item === stage);
+  return index >= 0 ? index + 1 : 1;
+}
+
+function wordSpiralHtml(stage: string, description: string) {
+  const current = spiralStageNumber(stage);
+  const cells = spiralStages
+    .map((item, index) => {
+      const number = index + 1;
+      const active = number === current;
+      return `
+        <td class="${active ? "spiral-active" : ""}">
+          <strong>${number}</strong><br />
+          ${escapeHtml(item)}
+        </td>
+      `;
+    })
+    .join("");
+  return `
+    <div class="word-section spiral-section">
+      <h2>Operational Strain Spiral</h2>
+      <p>The Operational Strain Spiral illustrates how growth, complexity, staffing pressure, systems fragmentation, and reporting friction can compound over time. FitProof uses this framework to identify where an organization currently operates and where operational strain may begin limiting growth, execution, or resilience.</p>
+      <table class="spiral-table"><tr>${cells}</tr></table>
+      <div class="stage-callout">
+        <p><strong>Current Stage: ${escapeHtml(stage)}</strong></p>
+        <p>${escapeHtml(description)}</p>
+      </div>
+    </div>
+  `;
+}
+
 function Field({
   label,
   value,
@@ -1091,6 +1132,33 @@ function Report({
             .pdf-export-report > div,
             .pdf-export-report details {
               break-inside: avoid;
+              page-break-inside: avoid;
+            }
+            .pdf-export-report .report-card,
+            .pdf-export-report .score-profile,
+            .pdf-export-report .stage-box,
+            .pdf-export-report .kpi-section,
+            .pdf-export-report .benchmark-section,
+            .pdf-export-report .recommendation-box,
+            .pdf-export-report .website-section,
+            .pdf-export-report .public-reporting-section,
+            .pdf-export-report .data-quality-section,
+            .pdf-export-report .debug-section {
+              break-inside: avoid !important;
+              page-break-inside: avoid !important;
+            }
+            .pdf-export-report .report-title-page {
+              break-after: page;
+              page-break-after: always;
+            }
+            .pdf-export-report h1,
+            .pdf-export-report h2,
+            .pdf-export-report h3,
+            .pdf-export-report summary {
+              break-after: avoid;
+              page-break-after: avoid;
+              orphans: 3;
+              widows: 3;
             }
             .pdf-export-report .gauge-section {
               display: grid !important;
@@ -1184,6 +1252,12 @@ function Report({
             .cover { border: 1px solid #d8ddd3; background: #f2f7ee; padding: 14px; }
             .logo { width: 108px; height: auto; }
             .brand-box { border: 1px solid #d8ddd3; background: #f7faf4; padding: 10px; margin-top: 10px; }
+            .word-section, .stage-callout, .gauge-cell, table { page-break-inside: avoid; break-inside: avoid; }
+            h1, h2, h3 { page-break-after: avoid; break-after: avoid; }
+            .spiral-section { border: 1px solid #d8ddd3; background: #f7faf4; padding: 12px; margin-top: 12px; }
+            .spiral-table td { width: 16.66%; text-align: center; border: 1px solid #d8ddd3; background: #ffffff; font-size: 10px; }
+            .spiral-table .spiral-active { border: 2px solid #67a629; background: #eaf4e3; font-weight: bold; }
+            .stage-callout { border: 1px solid #67a629; background: #f2f7ee; padding: 8px; margin-top: 8px; }
             .gauge-grid { display: table; width: 100%; border-spacing: 8px; margin-top: 10px; }
             .gauge-cell { display: table-cell; width: 33.33%; border: 1px solid #d8ddd3; padding: 10px; vertical-align: top; }
             .word-gauge-head { display: flex; justify-content: space-between; font-size: 12px; }
@@ -1203,44 +1277,50 @@ function Report({
             <p class="meta">${escapeHtml(organization)} | ${escapeHtml(date)} | Report ID ${escapeHtml(reportId)}</p>
             <p class="meta">Email verified: ${escapeHtml(lead.email || "Not provided")}</p>
             <p class="meta">Website reviewed: ${escapeHtml(profile.websiteUrl || "Not provided")}</p>
+            ${
+              intelligence
+                ? wordSpiralHtml(intelligence.operationalStrainSpiral.currentStage, intelligence.operationalStrainSpiral.stageDescription)
+                : `<div class="stage-callout"><p><strong>Current Stage: ${escapeHtml(result.stage.name)}</strong></p><p>${escapeHtml(recommendation.primary)}</p></div>`
+            }
           </div>
 
           ${
             intelligence
               ? `
-                <h2>Executive Gauges</h2>
+                <div class="word-section"><h2>Executive Gauges</h2>
                 <div class="gauge-grid">
                   <div class="gauge-cell">${wordGaugeHtml("Operational Strain", intelligence.executiveSnapshot.operationalStrainScore)}</div>
                   <div class="gauge-cell">${wordGaugeHtml("Growth Readiness", intelligence.executiveSnapshot.growthReadinessScore)}</div>
                   <div class="gauge-cell">${wordGaugeHtml("Organizational Health", intelligence.executiveSnapshot.organizationalHealthScore)}</div>
-                </div>
-                <h2>Executive Summary</h2>${intelligence.executiveSummaryParagraphs.map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`).join("")}
-                <h2>Score Profile</h2>
+                </div></div>
+                <div class="word-section"><h2>Executive Summary</h2>${intelligence.executiveSummaryParagraphs.map((paragraph) => `<p>${escapeHtml(paragraph)}</p>`).join("")}</div>
+                <div class="word-section"><h2>Score Profile</h2>
                 <p><strong>Operational Strain:</strong> ${escapeHtml(scoreImpactText("strain", intelligence.executiveSnapshot.operationalStrainScore))}</p>
                 <p><strong>Growth Readiness:</strong> ${escapeHtml(scoreImpactText("growth", intelligence.executiveSnapshot.growthReadinessScore))}</p>
-                <p><strong>Organizational Health:</strong> ${escapeHtml(scoreImpactText("health", intelligence.executiveSnapshot.organizationalHealthScore))}</p>
-                <h2>Current Spiral Stage</h2>
+                <p><strong>Organizational Health:</strong> ${escapeHtml(scoreImpactText("health", intelligence.executiveSnapshot.organizationalHealthScore))}</p></div>
+                <div class="word-section"><h2>Current Spiral Stage</h2>
                 <p><strong>${escapeHtml(intelligence.operationalStrainSpiral.currentStage)}:</strong> ${escapeHtml(intelligence.operationalStrainSpiral.stageDescription)}</p>
                 <p><strong>Why classified here:</strong> ${escapeHtml(intelligence.operationalStrainSpiral.primaryStrainDrivers.slice(0, 3).join(" "))}</p>
-                <p><strong>If unaddressed:</strong> ${escapeHtml(intelligence.operationalStrainSpiral.likelyFutureRisks.slice(0, 2).join(" "))}</p>
-                <h2>Key Findings</h2><ul>${listItems(intelligence.keyFindings)}</ul>
-                <h2>Benchmark Highlights</h2>
-                <table><thead><tr><th>Metric</th><th>Organization</th><th>Peer Median</th><th>Percentile</th></tr></thead><tbody>${intelligence.benchmarkHighlights.map((item) => `<tr><td>${escapeHtml(item.metric)}</td><td>${escapeHtml(item.organizationDisplay)}</td><td>${escapeHtml(item.peerMedianDisplay)}</td><td>${escapeHtml(item.percentile === null ? "Unavailable" : `${item.percentile}th`)}</td></tr>`).join("")}</tbody></table>
-                <h2>5-Year Revenue / Expense Trend</h2>
-                <div class="brand-box">${wordRevenueTrendHtml(intelligence.financialTrend)}</div>
-                <h2>Peer Benchmark Radar</h2>
-                <div class="brand-box">${wordRadarHtml(intelligence.benchmarkHighlights)}</div>
-                <h2>Executive KPIs</h2>
+                <p><strong>If unaddressed:</strong> ${escapeHtml(intelligence.operationalStrainSpiral.likelyFutureRisks.slice(0, 2).join(" "))}</p></div>
+                <div class="word-section"><h2>Key Findings</h2><ul>${listItems(intelligence.keyFindings)}</ul></div>
+                <div class="word-section"><h2>Benchmark Highlights</h2>
+                <table><thead><tr><th>Metric</th><th>Organization</th><th>Peer Median</th><th>Percentile</th></tr></thead><tbody>${intelligence.benchmarkHighlights.map((item) => `<tr><td>${escapeHtml(item.metric)}</td><td>${escapeHtml(item.organizationDisplay)}</td><td>${escapeHtml(item.peerMedianDisplay)}</td><td>${escapeHtml(item.percentile === null ? "Unavailable" : `${item.percentile}th`)}</td></tr>`).join("")}</tbody></table></div>
+                <div class="word-section"><h2>5-Year Revenue / Expense Trend</h2>
+                <div class="brand-box">${wordRevenueTrendHtml(intelligence.financialTrend)}</div></div>
+                <div class="word-section"><h2>Peer Benchmark Radar</h2>
+                <div class="brand-box">${wordRadarHtml(intelligence.benchmarkHighlights)}</div></div>
+                <div class="word-section"><h2>Executive KPIs</h2>
                 ${intelligence.executiveKpis.map((group) => `<h3>${escapeHtml(group.title)}</h3><table><thead><tr><th>KPI</th><th>Value</th><th>Source</th></tr></thead><tbody>${group.items.map((item) => `<tr><td>${escapeHtml(item.label)}</td><td>${escapeHtml(item.value)}</td><td>${escapeHtml(item.source)}</td></tr>`).join("")}</tbody></table>`).join("")}
-                <h2>Primary Operational Risks</h2><ul>${listItems(intelligence.primaryOperationalRisks)}</ul>
-                <h2>Growth Constraints</h2><ul>${listItems(intelligence.growthConstraints)}</ul>
-                <h2>Recommended Priorities</h2><ul>${listItems(intelligence.recommendedPriorities)}</ul>
-                <h2>Website & Public Presence Assessment</h2><p>${escapeHtml(intelligence.websitePresenceAssessment.status)}</p>${intelligence.websitePresenceAssessment.score === null ? "" : `<p><strong>Website Sophistication Score:</strong> ${escapeHtml(intelligence.websitePresenceAssessment.score)}/100</p>`}<p>${escapeHtml(intelligence.websitePresenceAssessment.impact)}</p><ul>${listItems(intelligence.websitePresenceAssessment.recommendations)}</ul>
-                <h2>Public Reporting Sophistication</h2><p>${escapeHtml(intelligence.annualReportInsight.status)}</p>${intelligence.annualReportInsight.score === null ? "" : `<p><strong>Public Reporting Sophistication Score:</strong> ${escapeHtml(intelligence.annualReportInsight.score)}/100</p>`}<ul>${listItems(intelligence.annualReportInsight.findings)}</ul>
-                <h2>Supporting Source Appendix</h2>
-                <table><thead><tr><th>Metric</th><th>Value</th><th>Source</th></tr></thead><tbody>${intelligence.supportingMetrics.map((item) => `<tr><td>${escapeHtml(item.label)}</td><td>${escapeHtml(item.value)}</td><td>${escapeHtml(item.source)}</td></tr>`).join("")}</tbody></table>
-                ${intelligence.workforceExtractionDebug ? `<h2>Workforce Extraction Debug</h2><p>Careers page found: ${escapeHtml(intelligence.workforceExtractionDebug.careersPageFound || "None")}</p><p>ATS platform detected: ${escapeHtml(intelligence.workforceExtractionDebug.atsPlatformDetected || "None")}</p><p>Postings extracted: ${escapeHtml(intelligence.workforceExtractionDebug.postingsExtracted)}; after deduplication: ${escapeHtml(intelligence.workforceExtractionDebug.postingsAfterDeduplication)}</p><ul>${listItems(intelligence.workforceExtractionDebug.sourceUrlsCrawled)}</ul>` : ""}
-                ${intelligence.dataQualityNotes.length ? `<h2>Data Quality Notes</h2><ul>${listItems(intelligence.dataQualityNotes)}</ul>` : ""}
+                </div>
+                <div class="word-section"><h2>Primary Operational Risks</h2><ul>${listItems(intelligence.primaryOperationalRisks)}</ul></div>
+                <div class="word-section"><h2>Growth Constraints</h2><ul>${listItems(intelligence.growthConstraints)}</ul></div>
+                <div class="word-section"><h2>Recommended Priorities</h2><ul>${listItems(intelligence.recommendedPriorities)}</ul></div>
+                <div class="word-section"><h2>Website & Public Presence Assessment</h2><p>${escapeHtml(intelligence.websitePresenceAssessment.status)}</p>${intelligence.websitePresenceAssessment.score === null ? "" : `<p><strong>Website Sophistication Score:</strong> ${escapeHtml(intelligence.websitePresenceAssessment.score)}/100</p>`}<p>${escapeHtml(intelligence.websitePresenceAssessment.impact)}</p><ul>${listItems(intelligence.websitePresenceAssessment.recommendations)}</ul></div>
+                <div class="word-section"><h2>Public Reporting Sophistication</h2><p>${escapeHtml(intelligence.annualReportInsight.status)}</p>${intelligence.annualReportInsight.score === null ? "" : `<p><strong>Public Reporting Sophistication Score:</strong> ${escapeHtml(intelligence.annualReportInsight.score)}/100</p>`}<ul>${listItems(intelligence.annualReportInsight.findings)}</ul></div>
+                <div class="word-section"><h2>Supporting Source Appendix</h2>
+                <table><thead><tr><th>Metric</th><th>Value</th><th>Source</th></tr></thead><tbody>${intelligence.supportingMetrics.map((item) => `<tr><td>${escapeHtml(item.label)}</td><td>${escapeHtml(item.value)}</td><td>${escapeHtml(item.source)}</td></tr>`).join("")}</tbody></table></div>
+                ${intelligence.workforceExtractionDebug ? `<div class="word-section"><h2>Workforce Extraction Debug</h2><p>Careers page found: ${escapeHtml(intelligence.workforceExtractionDebug.careersPageFound || "None")}</p><p>ATS platform detected: ${escapeHtml(intelligence.workforceExtractionDebug.atsPlatformDetected || "None")}</p><p>Postings extracted: ${escapeHtml(intelligence.workforceExtractionDebug.postingsExtracted)}; after deduplication: ${escapeHtml(intelligence.workforceExtractionDebug.postingsAfterDeduplication)}</p><ul>${listItems(intelligence.workforceExtractionDebug.sourceUrlsCrawled)}</ul></div>` : ""}
+                ${intelligence.dataQualityNotes.length ? `<div class="word-section"><h2>Data Quality Notes</h2><ul>${listItems(intelligence.dataQualityNotes)}</ul></div>` : ""}
               `
               : `<h2>Executive Summary</h2><p>${escapeHtml(summary)}</p><h2>Score Profile</h2><p><span class="score">Operational strain: ${escapeHtml(result.riskScore)}/100</span><span class="score">Stage ${escapeHtml(result.stage.number)}: ${escapeHtml(result.stage.name)}</span></p>`
           }
@@ -1319,28 +1399,34 @@ function Report({
 
   return (
     <article id="generated-report" className="mx-auto grid max-w-5xl gap-5 rounded border border-line bg-white p-5 shadow-soft print:border-0 print:p-0 print:shadow-none">
-      <div className="flex flex-col gap-4 border-b border-line pb-5 sm:flex-row sm:items-start sm:justify-between">
-        <div className="grid gap-4 sm:grid-cols-[140px_1fr] sm:items-start">
-          <span className="grid h-16 w-28 place-items-center rounded border border-line bg-white px-3">
-            <img src="/fitproof-logo-trimmed.png" alt="FitProof" className="h-11 w-auto object-contain" />
-          </span>
-          <div className="sm:pl-6">
-            <p className="text-xs font-bold uppercase tracking-[0.16em] text-fitgreen">Executive diagnostic</p>
-            <h2 className="mt-1 text-3xl font-bold lowercase tracking-tight">operational capacity report</h2>
-            <p className="mt-2 text-sm text-slate">{profile.organization || "Organization"} • {date}</p>
-            <p className="mt-1 text-xs font-bold uppercase tracking-[0.12em] text-slate">Report ID {reportId}</p>
-            {leadSaved && <p className="mt-2 text-xs font-bold uppercase tracking-[0.12em] text-fitgreen">Email verified: {lead.email}</p>}
-            {profile.websiteUrl && <p className="mt-1 text-xs font-bold uppercase tracking-[0.12em] text-slate">Website reviewed: {profile.websiteUrl}</p>}
+      <div className="report-title-page report-card grid gap-5 border-b border-line pb-5">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="grid gap-4 sm:grid-cols-[140px_1fr] sm:items-start">
+            <span className="grid h-16 w-28 place-items-center rounded border border-line bg-white px-3">
+              <img src="/fitproof-logo-trimmed.png" alt="FitProof" className="h-11 w-auto object-contain" />
+            </span>
+            <div className="sm:pl-6">
+              <p className="text-xs font-bold uppercase tracking-[0.16em] text-fitgreen">FitProof Executive Diagnostic</p>
+              <h2 className="mt-1 text-3xl font-bold tracking-tight">Operational Capacity Report</h2>
+              <p className="mt-2 text-sm text-slate">{profile.organization || "Organization"} • {date}</p>
+              <p className="mt-1 text-xs font-bold uppercase tracking-[0.12em] text-slate">Report ID {reportId}</p>
+              {leadSaved && <p className="mt-2 text-xs font-bold uppercase tracking-[0.12em] text-fitgreen">Email verified: {lead.email}</p>}
+              {profile.websiteUrl && <p className="mt-1 text-xs font-bold uppercase tracking-[0.12em] text-slate">Website reviewed: {profile.websiteUrl}</p>}
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate">
+                A concise executive view of operational strain, growth readiness, organizational health, public signals, and improvement priorities.
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-col gap-2 print:hidden">
+            <button type="button" onClick={downloadPdfReport} className="min-h-11 rounded bg-fitgreen px-4 text-sm font-bold text-blacktop transition hover:bg-blacktop hover:text-fitgreen">
+              Download PDF
+            </button>
+            <button type="button" onClick={downloadWordReport} className="min-h-11 rounded bg-blacktop px-4 text-sm font-bold text-fitgreen transition hover:bg-fitgreen hover:text-blacktop">
+              Download Word Document
+            </button>
           </div>
         </div>
-        <div className="flex flex-col gap-2 print:hidden">
-          <button type="button" onClick={downloadPdfReport} className="min-h-11 rounded bg-fitgreen px-4 text-sm font-bold text-blacktop transition hover:bg-blacktop hover:text-fitgreen">
-            Download PDF
-          </button>
-          <button type="button" onClick={downloadWordReport} className="min-h-11 rounded bg-blacktop px-4 text-sm font-bold text-fitgreen transition hover:bg-fitgreen hover:text-blacktop">
-            Download Word Document
-          </button>
-        </div>
+        {intelligence && <OperationalStrainSpiralVisual stage={intelligence.operationalStrainSpiral.currentStage} description={intelligence.operationalStrainSpiral.stageDescription} />}
       </div>
 
       {pdfExportError && (
@@ -1592,13 +1678,13 @@ function OperationalIntelligenceView({
 
   return (
     <div className="grid gap-5">
-      <section className="gauge-section grid gap-3 md:grid-cols-3">
+      <section className="gauge-section report-card grid gap-3 md:grid-cols-3">
         <ExecutiveGaugeCard label="Operational Strain" value={snapshot.operationalStrainScore} mode="strain" detail={snapshot.operationalStrainSpiralStage} />
         <ExecutiveGaugeCard label="Growth Readiness" value={snapshot.growthReadinessScore} mode="health" detail={intelligence.growthReadinessScore.classification} />
         <ExecutiveGaugeCard label="Organizational Health" value={snapshot.organizationalHealthScore} mode="health" detail={`${intelligence.operationalStrainSpiral.stageConfidence}% stage confidence`} />
       </section>
 
-      <section className="rounded border border-line bg-white p-4">
+      <section className="report-card rounded border border-line bg-white p-4">
         <h3 className="text-lg font-bold">Executive Summary</h3>
         <div className="mt-3 grid gap-3">
           {intelligence.executiveSummaryParagraphs.map((paragraph) => (
@@ -1614,7 +1700,7 @@ function OperationalIntelligenceView({
         </div>
       </section>
 
-      <section className="rounded border border-line bg-white p-4">
+      <section className="score-profile report-card rounded border border-line bg-white p-4">
         <h3 className="text-lg font-bold">Score Profile</h3>
         <div className="mt-3 grid gap-3 md:grid-cols-3">
           <ImpactCard title="Operational Strain" value={snapshot.operationalStrainScore} text={scoreImpactText("strain", snapshot.operationalStrainScore)} />
@@ -1623,7 +1709,7 @@ function OperationalIntelligenceView({
         </div>
       </section>
 
-      <section className="brand-box rounded border border-fitgreen/40 bg-fitgreen/10 p-4">
+      <section className="stage-box report-card brand-box rounded border border-fitgreen/40 bg-fitgreen/10 p-4">
         <p className="text-xs font-bold uppercase tracking-[0.16em] text-fitgreen">Current Spiral Stage</p>
         <h3 className="mt-2 text-2xl font-bold">{intelligence.operationalStrainSpiral.currentStage}</h3>
         <p className="mt-2 text-sm leading-6 text-slate">{intelligence.operationalStrainSpiral.stageDescription}</p>
@@ -1647,17 +1733,17 @@ function OperationalIntelligenceView({
         </div>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+      <section className="report-card grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
         <RevenueExpenseTrendChart points={intelligence.financialTrend} />
         <LiquidityBenchmarkChart benchmarks={intelligence.benchmarkHighlights} />
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
+      <section className="benchmark-section report-card grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
         <PeerBenchmarkRadarChart benchmarks={intelligence.benchmarkHighlights} />
         <WorkforceCapacityKpis groups={intelligence.executiveKpis} />
       </section>
 
-      <section className="rounded border border-line bg-mist p-4">
+      <section className="report-card rounded border border-line bg-mist p-4">
         <h3 className="text-lg font-bold">Key Findings</h3>
         <div className="mt-3 grid gap-2">
           {intelligence.keyFindings.map((finding) => (
@@ -1666,7 +1752,7 @@ function OperationalIntelligenceView({
         </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-[1fr_1.15fr]">
+      <section className="benchmark-section report-card grid gap-4 md:grid-cols-[1fr_1.15fr]">
         <div className="brand-box rounded border border-line p-4">
           <h3 className="text-lg font-bold">Organizational Health Score</h3>
           <div className="mt-3 grid gap-3">
@@ -1711,13 +1797,13 @@ function OperationalIntelligenceView({
         </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-3">
+      <section className="recommendation-box report-card grid gap-4 md:grid-cols-3">
         <ListPanel title="Primary Operational Risks" items={intelligence.primaryOperationalRisks} />
         <ListPanel title="Address Growth Constraints" items={intelligence.growthConstraints} />
         <ListPanel title="Recommended Priorities" items={intelligence.recommendedPriorities} />
       </section>
 
-      <section className="rounded border border-line bg-white p-4">
+      <section className="website-section report-card rounded border border-line bg-white p-4">
         <h3 className="text-lg font-bold">Website & Public Presence Assessment</h3>
         <p className="mt-2 text-sm leading-6 text-slate">{intelligence.websitePresenceAssessment.status}</p>
         {intelligence.websitePresenceAssessment.score !== null && (
@@ -1748,7 +1834,7 @@ function OperationalIntelligenceView({
         )}
       </section>
 
-      <section className="rounded border border-line bg-white p-4">
+      <section className="public-reporting-section report-card rounded border border-line bg-white p-4">
         <h3 className="text-lg font-bold">Public Reporting Sophistication</h3>
         <p className="mt-2 text-sm leading-6 text-slate">{intelligence.annualReportInsight.status}</p>
         {intelligence.annualReportInsight.score !== null && (
@@ -1762,9 +1848,9 @@ function OperationalIntelligenceView({
         {intelligence.annualReportInsight.sourceUrl && <p className="mt-3 text-xs text-slate">Source: {intelligence.annualReportInsight.sourceUrl}</p>}
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2">
+      <section className="kpi-section report-card grid gap-4 md:grid-cols-2">
         {intelligence.executiveKpis.map((group) => (
-          <details key={group.title} className="rounded border border-line bg-white p-4">
+          <details key={group.title} className="kpi-section report-card rounded border border-line bg-white p-4">
             <summary className="cursor-pointer text-lg font-bold">{group.title}</summary>
             <div className="mt-3 grid gap-2">
               {group.items.map((item) => (
@@ -1781,7 +1867,7 @@ function OperationalIntelligenceView({
         ))}
       </section>
 
-      <details className="rounded border border-line bg-panel p-4">
+      <details className="data-quality-section report-card rounded border border-line bg-panel p-4">
         <summary className="cursor-pointer text-lg font-bold">Supporting Source Appendix</summary>
         <div className="mt-3 overflow-x-auto">
           <table className="w-full min-w-[620px] border-collapse text-left text-sm">
@@ -1806,7 +1892,7 @@ function OperationalIntelligenceView({
       </details>
 
       {intelligence.workforceExtractionDebug && (
-        <details className="rounded border border-line bg-white p-4">
+        <details className="debug-section report-card rounded border border-line bg-white p-4">
           <summary className="cursor-pointer text-lg font-bold">Workforce Extraction Debug</summary>
           <div className="mt-3 grid gap-2 text-sm leading-6 text-slate">
             <p><strong>Careers page found:</strong> {intelligence.workforceExtractionDebug.careersPageFound || "None"}</p>
@@ -1827,7 +1913,7 @@ function OperationalIntelligenceView({
       )}
 
       {intelligence.dataQualityNotes.length > 0 && (
-        <details className="rounded border border-line bg-white p-4">
+        <details className="data-quality-section report-card rounded border border-line bg-white p-4">
           <summary className="cursor-pointer text-lg font-bold">Data Quality Notes</summary>
           <ul className="mt-3 grid gap-2 text-sm leading-6 text-slate">
             {intelligence.dataQualityNotes.map((note) => <li key={note}>{note}</li>)}
@@ -1835,7 +1921,7 @@ function OperationalIntelligenceView({
         </details>
       )}
 
-      <details className="rounded border border-line bg-white p-4">
+      <details className="data-quality-section report-card rounded border border-line bg-white p-4">
         <summary className="cursor-pointer text-lg font-bold">Sources Reviewed</summary>
         <ul className="mt-3 grid gap-2 text-sm leading-6 text-slate">
           {sources.length ? (
@@ -1849,9 +1935,46 @@ function OperationalIntelligenceView({
   );
 }
 
+function OperationalStrainSpiralVisual({ stage, description }: { stage: string; description: string }) {
+  const current = spiralStageNumber(stage);
+
+  return (
+    <section className="stage-box report-card rounded border border-fitgreen/40 bg-fitgreen/10 p-4">
+      <div className="grid gap-4 lg:grid-cols-[1fr_280px] lg:items-center">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-fitgreen">Operational Strain Spiral</p>
+          <h3 className="mt-2 text-2xl font-bold">Current Stage: {stage}</h3>
+          <p className="mt-2 text-sm leading-6 text-slate">
+            The Operational Strain Spiral illustrates how growth, complexity, staffing pressure, systems fragmentation, and reporting friction can compound over time. FitProof uses this framework to identify where an organization currently operates and where operational strain may begin limiting growth, execution, or resilience.
+          </p>
+          <div className="mt-4 rounded border border-fitgreen/50 bg-white p-3">
+            <p className="text-sm font-bold">Current stage callout</p>
+            <p className="mt-1 text-sm leading-6 text-slate">{description}</p>
+          </div>
+        </div>
+        <div className="rounded border border-line bg-white p-3">
+          <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
+            {spiralStages.map((item, index) => {
+              const number = index + 1;
+              const active = number === current;
+              return (
+                <div key={item} className={`rounded border p-2 ${active ? "border-fitgreen bg-fitgreen/15 ring-2 ring-fitgreen/30" : "border-line bg-panel"}`}>
+                  <p className={`text-lg font-bold ${active ? "text-fitgreen" : "text-slate"}`}>{number}</p>
+                  <p className="mt-1 font-bold leading-4 text-ink">{item}</p>
+                  {active && <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.1em] text-fitgreen">Current</p>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function ListPanel({ title, items }: { title: string; items: string[] }) {
   return (
-    <div className="rounded border border-line p-4">
+    <div className="recommendation-box report-card rounded border border-line p-4">
       <h3 className="text-lg font-bold">{title}</h3>
       <ul className="mt-3 grid gap-2 text-sm leading-6 text-slate">
         {items.length ? items.map((item) => <li key={item}>{item}</li>) : <li>No priority items available.</li>}
@@ -1862,7 +1985,7 @@ function ListPanel({ title, items }: { title: string; items: string[] }) {
 
 function ImpactCard({ title, value, text }: { title: string; value: number; text: string }) {
   return (
-    <div className="rounded border border-line bg-panel p-3">
+    <div className="report-card rounded border border-line bg-panel p-3">
       <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate">{title}</p>
       <p className="mt-1 text-2xl font-bold tabular-nums">{value}<span className="text-sm text-slate">/100</span></p>
       <p className="mt-2 text-sm leading-6 text-slate">{text}</p>
@@ -1904,7 +2027,7 @@ function ExecutiveGaugeCard({ label, value, mode, detail }: { label: string; val
   const gradientId = `gauge-${label.replace(/\s+/g, "-").toLowerCase()}`;
 
   return (
-    <div className="gauge-card rounded border border-line bg-panel p-4">
+    <div className="gauge-card report-card rounded border border-line bg-panel p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs font-bold uppercase tracking-[0.12em] text-slate">{label}</p>
@@ -1957,7 +2080,7 @@ function RevenueExpenseTrendChart({ points }: { points: NonNullable<GeneratedExe
       .join(" ");
 
   return (
-    <div className="rounded border border-line p-4">
+    <div className="report-card rounded border border-line p-4">
       <div className="flex items-center justify-between gap-3">
         <h3 className="text-lg font-bold">5-Year Revenue vs Expense Trend</h3>
         <div className="flex gap-3 text-xs font-bold text-slate">
@@ -2019,7 +2142,7 @@ function LiquidityBenchmarkChart({ benchmarks }: { benchmarks: NonNullable<Gener
   if (!liquidity) return null;
 
   return (
-    <div className="rounded border border-line p-4">
+    <div className="report-card rounded border border-line p-4">
       <h3 className="text-lg font-bold">Liquidity Benchmark</h3>
       <p className="mt-2 text-sm leading-6 text-slate">{liquidity ? `${liquidity.metric}: ${liquidity.organizationDisplay} vs peer median ${liquidity.peerMedianDisplay}.` : "Liquidity benchmark data was unavailable."}</p>
       <div className="mt-4">
@@ -2054,7 +2177,7 @@ function PeerBenchmarkRadarChart({ benchmarks }: { benchmarks: NonNullable<Gener
   const polygon = axes.map((axis) => `${axis.valueX},${axis.valueY}`).join(" ");
 
   return (
-    <div className="rounded border border-line p-4">
+    <div className="benchmark-section report-card rounded border border-line p-4">
       <h3 className="text-lg font-bold">Peer Benchmark Radar</h3>
       {items.length ? (
         <div className="mt-3 grid gap-3 sm:grid-cols-[220px_1fr] sm:items-center">
@@ -2099,7 +2222,7 @@ function WorkforceCapacityKpis({ groups }: { groups: NonNullable<GeneratedExecut
   const items = (operational?.items || []).filter((item) => /open role|requisition|staffing/i.test(item.label));
 
   return (
-    <div className="rounded border border-line p-4">
+    <div className="kpi-section report-card rounded border border-line p-4">
       <h3 className="text-lg font-bold">Workforce Capacity KPIs</h3>
       <div className="mt-3 grid gap-3 sm:grid-cols-3">
         {items.length ? (

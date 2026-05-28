@@ -129,9 +129,10 @@ test("public reporting sophistication score is generated when reports are found"
 });
 
 test("requisition age uses postedDate, then firstSeenAt, and stays unavailable without dates", () => {
-  assert.match(staffingMetrics, /const raw = role\.postedDate \|\| role\.firstSeenAt/);
+  assert.match(staffingMetrics, /const raw = role\.postedDate \|\| historicalFirstSeenAt\(role\)/);
   assert.equal(staffingMetrics.includes("updatedDate || role.firstSeenAt"), false);
   assert.match(staffingMetrics, /if \(!raw\) return null/);
+  assert.match(staffingMetrics, /firstSeenDate\.toDateString\(\) === lastSeenDate\.toDateString\(\) \? null : role\.firstSeenAt/);
 });
 
 test("PDF uses the same rendered gauge component and export labels are simplified", () => {
@@ -156,4 +157,28 @@ test("export and web charts include requested labels and values", () => {
   assert.match(page, /wordRadarHtml/);
   assert.match(page, /\{category\} -/);
   assert.match(page, /gauge-section/);
+});
+
+test("PDF and Word exports keep major report sections together", () => {
+  assert.match(page, /\.pdf-export-report \.report-card/);
+  assert.match(page, /break-inside: avoid !important/);
+  assert.match(page, /page-break-inside: avoid !important/);
+  assert.match(page, /break-after: avoid/);
+  assert.match(page, /page-break-after: avoid/);
+  assert.match(page, /\.word-section, \.stage-callout, \.gauge-cell, table \{ page-break-inside: avoid; break-inside: avoid; \}/);
+  assert.match(page, /className="score-profile report-card/);
+});
+
+test("title page includes the Operational Strain Spiral and current stage", () => {
+  assert.match(page, /OperationalStrainSpiralVisual/);
+  assert.match(page, /Operational Strain Spiral illustrates how growth, complexity, staffing pressure/);
+  assert.match(page, /Current Stage: \{stage\}/);
+  assert.match(page, /wordSpiralHtml\(intelligence\.operationalStrainSpiral\.currentStage/);
+  assert.match(page, /spiralStageNumber\(stage\)/);
+});
+
+test("unavailable requisition age uses explanatory language instead of a zero default", () => {
+  assert.match(synthesis, /Many public hiring systems do not expose the original posting date/);
+  assert.equal(synthesis.includes('Average Requisition Age", `0 days`'), false);
+  assert.equal(staffingMetrics.includes("return 0"), false);
 });
