@@ -16,6 +16,7 @@ This is not a public-facing UI.
   - latest two available filings both show negative surplus/deficit
 - Prioritizes organizations that moved from profitable to unprofitable over the available five-year window.
 - Exports CSV files named `fitproof_nonprofit_loss_leads_YYYY-MM-DD.csv`.
+- Emails the CSV export to `sean@fit-proof.com` when `RESEND_API_KEY` is configured.
 
 Form 990 data often lags by 12-24 months, so the most recent available filing may not be the current calendar year.
 
@@ -30,6 +31,7 @@ Form 990 data often lags by 12-24 months, so the most recent available filing ma
 - `src/irs_client.py`: IRS bulk/local-file validation scaffold.
 - `src/scoring.py`: Eligibility and priority scoring.
 - `src/export.py`: CSV export.
+- `src/email_delivery.py`: Resend email delivery for internal CSV exports.
 - `src/main.py`: Command-line ETL runner.
 
 ## Database Tables
@@ -60,6 +62,9 @@ Edit `.env` and set:
 
 ```bash
 DATABASE_URL=postgresql://fitproof:your_password@localhost:5432/fitproof_leads
+RESEND_API_KEY=your_resend_api_key
+LEAD_EXPORT_EMAIL_TO=sean@fit-proof.com
+LEAD_EXPORT_EMAIL_FROM=FitProof Leads <assessments@fit-proof.com>
 ```
 
 Initialize the database:
@@ -79,6 +84,8 @@ Export qualifying nonprofit names only:
 ```bash
 python src/main.py --export names-only
 ```
+
+If `RESEND_API_KEY` is configured, this also emails the CSV to `LEAD_EXPORT_EMAIL_TO`.
 
 Export the internal full version:
 
@@ -196,6 +203,9 @@ Set:
 
 ```bash
 DATABASE_URL=postgresql://fitproof:replace-this-password@localhost:5432/fitproof_leads
+RESEND_API_KEY=your_resend_api_key
+LEAD_EXPORT_EMAIL_TO=sean@fit-proof.com
+LEAD_EXPORT_EMAIL_FROM=FitProof Leads <assessments@fit-proof.com>
 ```
 
 Initialize the schema and run:
@@ -206,6 +216,8 @@ python src/main.py --init-db
 python src/main.py --source propublica --limit 1000
 python src/main.py --export names-only
 ```
+
+The export command saves the CSV in `exports/` and emails it to `LEAD_EXPORT_EMAIL_TO`.
 
 Go back to your Mac:
 

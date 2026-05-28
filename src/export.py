@@ -7,6 +7,7 @@ from typing import Any
 
 from config import Settings
 from db import insert_export_run, qualifying_leads
+from email_delivery import send_export_email
 
 
 NAMES_ONLY_COLUMNS = ["nonprofit_name"]
@@ -27,4 +28,5 @@ def export_leads(conn, settings: Settings, export_type: str) -> Path:
 
     insert_export_run(conn, export_type, file_path, len(rows))
     conn.commit()
+    send_export_email(settings, file_path, export_type, len(rows))
     return file_path

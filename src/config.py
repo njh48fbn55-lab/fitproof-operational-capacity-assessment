@@ -30,6 +30,9 @@ class Settings:
     http_timeout_seconds: int
     http_retry_attempts: int
     user_agent: str
+    resend_api_key: str | None
+    lead_export_email_to: str
+    lead_export_email_from: str
 
 
 def load_settings() -> Settings:
@@ -53,6 +56,9 @@ def load_settings() -> Settings:
         http_timeout_seconds=int(os.getenv("HTTP_TIMEOUT_SECONDS", "30")),
         http_retry_attempts=int(os.getenv("HTTP_RETRY_ATTEMPTS", "3")),
         user_agent=os.getenv("FITPROOF_USER_AGENT", "FitProofLeadDiscovery/0.1"),
+        resend_api_key=os.getenv("RESEND_API_KEY") or None,
+        lead_export_email_to=os.getenv("LEAD_EXPORT_EMAIL_TO") or os.getenv("ASSESSMENT_NOTIFICATION_EMAIL") or "sean@fit-proof.com",
+        lead_export_email_from=os.getenv("LEAD_EXPORT_EMAIL_FROM") or os.getenv("ASSESSMENT_NOTIFICATION_FROM") or "FitProof Leads <assessments@fit-proof.com>",
     )
 
 
