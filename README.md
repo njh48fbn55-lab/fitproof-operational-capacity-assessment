@@ -122,6 +122,8 @@ Export high-confidence affiliates ranked by revenue:
 python src/main.py --goodwill-affiliates --export
 ```
 
+If `RESEND_API_KEY` is configured, this emails the Goodwill ranking CSV to `LEAD_EXPORT_EMAIL_TO`.
+
 Include Goodwill Industries International:
 
 ```bash

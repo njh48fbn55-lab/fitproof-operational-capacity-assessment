@@ -13,6 +13,7 @@ import requests
 
 from config import Settings, normalize_ein
 from db import insert_export_run, ranked_goodwill_affiliates, upsert_filing, upsert_goodwill_affiliate, upsert_organization
+from email_delivery import send_export_email
 from irs_client import IRSClient
 from propublica_client import ProPublicaClient
 
@@ -183,6 +184,7 @@ def export_goodwill_affiliates(conn, settings: Settings, min_revenue: Decimal | 
 
     insert_export_run(conn, "goodwill-affiliates-full" if include_medium else "goodwill-affiliates", file_path, len(rows))
     conn.commit()
+    send_export_email(settings, file_path, "goodwill-affiliates-full" if include_medium else "goodwill-affiliates", len(rows))
     return file_path
 
 
