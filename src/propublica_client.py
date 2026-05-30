@@ -21,9 +21,9 @@ class ProPublicaClient:
         self.session.headers.update({"User-Agent": settings.user_agent, "Accept": "application/json"})
         self._last_request_at = 0.0
 
-    def discover_eins(self, limit: int) -> list[str]:
+    def discover_eins(self, limit: int, exclude_eins: set[str] | None = None) -> list[str]:
         found: list[str] = []
-        seen: set[str] = set()
+        seen: set[str] = set(exclude_eins or set())
 
         for ein in self.settings.seed_eins + self._seed_eins_from_file():
             normalized = normalize_ein(ein)

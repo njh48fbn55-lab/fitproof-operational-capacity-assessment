@@ -37,7 +37,7 @@ class IRSClient:
             logger.info("IRS bulk index URL configured; direct object lookup is not enabled in MVP", extra={"ein": normalized})
         return []
 
-    def load_local_records(self, limit: int) -> dict[str, dict[str, Any]]:
+    def load_local_records(self, limit: int, exclude_eins: set[str] | None = None) -> dict[str, dict[str, Any]]:
         if not self.settings.irs_bulk_local_path:
             logger.warning("IRS_BULK_LOCAL_PATH is not configured")
             return {}
@@ -48,9 +48,12 @@ class IRSClient:
             return {}
 
         records: dict[str, dict[str, Any]] = {}
+        skipped = set(exclude_eins or set())
         for row in self._iter_local_rows(path):
             ein = normalize_ein(row.get("ein") or row.get("EIN"))
             if not ein:
+                continue
+            if ein in skipped:
                 continue
 
             if ein not in records:

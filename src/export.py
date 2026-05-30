@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import csv
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -14,8 +14,8 @@ NAMES_ONLY_COLUMNS = ["nonprofit_name"]
 FULL_COLUMNS = ["nonprofit_name", "ein", "state", "latest_revenue", "latest_expenses", "latest_deficit", "priority_score"]
 
 
-def export_leads(conn, settings: Settings, export_type: str) -> Path:
-    rows = qualifying_leads(conn)
+def export_leads(conn, settings: Settings, export_type: str, scored_since: datetime | None = None) -> Path:
+    rows = qualifying_leads(conn, scored_since=scored_since)
     settings.export_dir.mkdir(parents=True, exist_ok=True)
     file_path = settings.export_dir / f"fitproof_nonprofit_loss_leads_{date.today().isoformat()}.csv"
     columns = NAMES_ONLY_COLUMNS if export_type == "names-only" else FULL_COLUMNS

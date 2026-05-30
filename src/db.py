@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from datetime import datetime
 from typing import Any
 
 import psycopg
@@ -85,6 +86,12 @@ def fetch_filings(conn, ein: str) -> list[dict[str, Any]]:
         return list(cur.fetchall())
 
 
+def fetch_scored_eins(conn) -> set[str]:
+    with conn.cursor() as cur:
+        cur.execute("SELECT ein FROM lead_scores")
+        return {row["ein"] for row in cur.fetchall()}
+
+
 def upsert_lead_score(conn, score: dict[str, Any]) -> None:
     payload = dict(score)
     payload["score_details"] = Jsonb(payload.get("score_details") or {})
@@ -115,7 +122,7 @@ def upsert_lead_score(conn, score: dict[str, Any]) -> None:
         )
 
 
-def qualifying_leads(conn) -> list[dict[str, Any]]:
+def qualifying_leads(conn, scored_since: datetime | None = None) -> list[dict[str, Any]]:
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -130,8 +137,10 @@ def qualifying_leads(conn) -> list[dict[str, Any]]:
             FROM lead_scores ls
             JOIN organizations o ON o.ein = ls.ein
             WHERE ls.qualifies = TRUE
+              AND (%s::timestamptz IS NULL OR ls.scored_at >= %s::timestamptz)
             ORDER BY ls.priority_score DESC, ls.latest_deficit ASC NULLS LAST, o.name ASC
-            """
+            """,
+            (scored_since, scored_since),
         )
         return list(cur.fetchall())
 

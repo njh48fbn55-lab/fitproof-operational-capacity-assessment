@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import argparse
 import logging
+from datetime import datetime, timezone
 from decimal import Decimal
 
 from config import load_settings
-from db import connect, fetch_filings, init_schema, upsert_filing, upsert_lead_score, upsert_organization
+from db import connect, fetch_filings, fetch_scored_eins, init_schema, upsert_filing, upsert_lead_score, upsert_organization
 from export import export_leads
 from goodwill_affiliates import run_goodwill_affiliates
 from irs_client import IRSClient
@@ -77,24 +78,28 @@ def main() -> None:
 def run_daily_loss_export(conn, settings, args: argparse.Namespace) -> None:
     source = args.source or "propublica"
     export_type = args.export or "names-only"
+    run_started_at = datetime.now(timezone.utc)
 
     try:
         if source == "irs":
-            process_irs(conn, settings, args.limit)
+            process_irs(conn, settings, args.limit, skip_existing=True)
         else:
-            process_propublica(conn, settings, args.limit)
+            process_propublica(conn, settings, args.limit, skip_existing=True)
     except Exception:
         conn.rollback()
         logger.exception("Daily discovery step failed; exporting existing qualifying leads from database")
 
-    file_path = export_leads(conn, settings, export_type)
+    file_path = export_leads(conn, settings, export_type, scored_since=run_started_at)
     logger.info("Daily nonprofit loss export complete", extra={"file_path": str(file_path), "export_type": export_type})
 
 
-def process_propublica(conn, settings, limit: int) -> None:
+def process_propublica(conn, settings, limit: int, skip_existing: bool = False) -> None:
     propublica = ProPublicaClient(settings)
     irs = IRSClient(settings)
-    eins = propublica.discover_eins(limit)
+    exclude_eins = fetch_scored_eins(conn) if skip_existing else set()
+    if exclude_eins:
+        logger.info("Skipping EINs that were already scored", extra={"count": len(exclude_eins)})
+    eins = propublica.discover_eins(limit, exclude_eins=exclude_eins)
     logger.info("Discovered EIN candidates", extra={"count": len(eins)})
 
     for index, ein in enumerate(eins, start=1):
@@ -118,9 +123,12 @@ def process_propublica(conn, settings, limit: int) -> None:
             logger.exception("Failed to process EIN", extra={"ein": ein})
 
 
-def process_irs(conn, settings, limit: int) -> None:
+def process_irs(conn, settings, limit: int, skip_existing: bool = False) -> None:
     irs = IRSClient(settings)
-    records_by_ein = irs.load_local_records(limit)
+    exclude_eins = fetch_scored_eins(conn) if skip_existing else set()
+    if exclude_eins:
+        logger.info("Skipping IRS EINs that were already scored", extra={"count": len(exclude_eins)})
+    records_by_ein = irs.load_local_records(limit, exclude_eins=exclude_eins)
     if not records_by_ein:
         logger.warning("No IRS records loaded. Set IRS_BULK_LOCAL_PATH or use --source propublica.")
         return
