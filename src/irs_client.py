@@ -37,6 +37,50 @@ class IRSClient:
             logger.info("IRS bulk index URL configured; direct object lookup is not enabled in MVP", extra={"ein": normalized})
         return []
 
+    def load_local_records(self, limit: int) -> dict[str, dict[str, Any]]:
+        if not self.settings.irs_bulk_local_path:
+            logger.warning("IRS_BULK_LOCAL_PATH is not configured")
+            return {}
+
+        path = Path(self.settings.irs_bulk_local_path)
+        if not path.exists():
+            logger.warning("IRS local bulk file not found", extra={"path": str(path)})
+            return {}
+
+        records: dict[str, dict[str, Any]] = {}
+        for row in self._iter_local_rows(path):
+            ein = normalize_ein(row.get("ein") or row.get("EIN"))
+            if not ein:
+                continue
+
+            if ein not in records:
+                if len(records) >= limit:
+                    continue
+                records[ein] = {
+                    "organization": normalize_irs_organization(ein, row),
+                    "filings": [],
+                }
+
+            filing = normalize_irs_row(ein, row)
+            if filing["filing_year"] is not None:
+                records[ein]["filings"].append(filing)
+
+        return {ein: payload for ein, payload in records.items() if payload["filings"]}
+
+    def _iter_local_rows(self, path: Path):
+        if path.suffix.lower() == ".jsonl":
+            with path.open("r", encoding="utf-8") as handle:
+                for line in handle:
+                    try:
+                        yield json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+            return
+
+        with path.open("r", encoding="utf-8", newline="") as handle:
+            reader = csv.DictReader(handle)
+            yield from reader
+
     def _lookup_local_file(self, ein: str, path: Path) -> list[dict[str, Any]]:
         if not path.exists():
             logger.warning("IRS local bulk file not found", extra={"path": str(path)})
@@ -83,6 +127,24 @@ def normalize_irs_row(ein: str, row: dict[str, Any]) -> dict[str, Any]:
         "source_url": row.get("source_url") or "IRS TEOS/Form 990 bulk data",
         "filing_url": row.get("filing_url") or row.get("object_url"),
         "raw_payload": row,
+    }
+
+
+def normalize_irs_organization(ein: str, row: dict[str, Any]) -> dict[str, Any]:
+    name = (
+        row.get("name")
+        or row.get("organization_name")
+        or row.get("org_name")
+        or row.get("OrganizationName")
+        or row.get("NAME")
+        or f"EIN {ein}"
+    )
+    return {
+        "ein": ein,
+        "name": name,
+        "state": row.get("state") or row.get("STATE") or row.get("address_state"),
+        "ntee_category": row.get("ntee_category") or row.get("ntee_code") or row.get("NTEE_CD"),
+        "source_url": row.get("source_url") or "IRS TEOS/Form 990 bulk data",
     }
 
 

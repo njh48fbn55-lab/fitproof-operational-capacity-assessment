@@ -306,7 +306,15 @@ crontab -e
 Add this nightly job:
 
 ```cron
-15 2 * * * cd /var/www/fitproof-operational-capacity-assessment && . .venv/bin/activate && python src/main.py --source propublica --limit 1000 >> /var/log/fitproof-lead-discovery.log 2>&1 && python src/main.py --export names-only >> /var/log/fitproof-lead-discovery.log 2>&1
+15 2 * * * cd /var/www/fitproof-operational-capacity-assessment && . .venv/bin/activate && python3 src/main.py --daily-loss-export --source propublica --limit 5000 --export full >> /var/log/fitproof-lead-discovery.log 2>&1
+```
+
+This single command initializes the tables, refreshes nonprofit loss leads, creates the CSV, and emails it to `LEAD_EXPORT_EMAIL_TO`.
+
+If you have a local IRS TEOS/Form 990 bulk file configured with `IRS_BULK_LOCAL_PATH`, you can run the daily job from that file instead:
+
+```cron
+15 2 * * * cd /var/www/fitproof-operational-capacity-assessment && . .venv/bin/activate && python3 src/main.py --daily-loss-export --source irs --limit 5000 --export full >> /var/log/fitproof-lead-discovery.log 2>&1
 ```
 
 Go back to your Mac:
