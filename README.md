@@ -326,6 +326,28 @@ exit
 ## Notes
 
 - Missing filings are handled gracefully.
+
+## IRS Seed List
+
+The broadest practical seed source is the IRS Exempt Organizations Business Master File Extract. The IRS publishes this as CSV files by state and region. The EO BMF page currently reports roughly 1.9M exempt organization records, so FitProof filters the file before using it as a ProPublica lookup queue.
+
+Build a targeted seed file from IRS EO BMF:
+
+```bash
+python3 src/main.py --build-irs-seed-list --seed-limit 50000
+```
+
+By default this pulls the three domestic regional IRS files, keeps 501(c)(3) organizations, filters to roughly $10M-$100M revenue/income, and favors nonprofit NTEE categories relevant to FitProof targets such as health, human services, employment, housing, food, mental health, community improvement, and nonprofit infrastructure.
+
+Then set the generated file in `.env.local`:
+
+```bash
+LEAD_DISCOVERY_SEED_EIN_FILE=/var/www/fitproof-operational-capacity-assessment/seeds/irs-eo-bmf-seed-eins-YYYY-MM-DD.txt
+```
+
+The daily export will then process EINs from that seed file and skip EINs that have already been scored.
+
+SIC and NAICS are not the right filters for this IRS nonprofit data. IRS exempt organization files use nonprofit-specific fields such as NTEE code, subsection, foundation code, activity code, asset/income/revenue bands, and filing requirement codes.
 - Organizations are deduplicated by EIN.
 - API failures are logged and retried.
 - The ETL is resumable because organizations, filings, and scores are upserted.

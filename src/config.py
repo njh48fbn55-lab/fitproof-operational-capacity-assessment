@@ -20,6 +20,7 @@ def _csv(value: str | None) -> list[str]:
 class Settings:
     database_url: str
     propublica_base_url: str
+    irs_eo_bmf_url: str
     irs_bulk_local_path: str | None
     irs_bulk_index_url: str | None
     search_terms: list[str]
@@ -46,6 +47,7 @@ def load_settings() -> Settings:
     return Settings(
         database_url=database_url,
         propublica_base_url=os.getenv("PROPUBLICA_BASE_URL", "https://projects.propublica.org/nonprofits/api/v2").rstrip("/"),
+        irs_eo_bmf_url=os.getenv("IRS_EO_BMF_URL", "https://www.irs.gov/charities-non-profits/exempt-organizations-business-master-file-extract-eo-bmf"),
         irs_bulk_local_path=os.getenv("IRS_BULK_LOCAL_PATH") or None,
         irs_bulk_index_url=os.getenv("IRS_BULK_INDEX_URL") or None,
         search_terms=_csv(os.getenv("LEAD_DISCOVERY_SEARCH_TERMS")),

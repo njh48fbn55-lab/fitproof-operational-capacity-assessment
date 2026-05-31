@@ -12,6 +12,7 @@ from goodwill_affiliates import run_goodwill_affiliates
 from irs_client import IRSClient
 from propublica_client import ProPublicaClient
 from scoring import score_lead
+from seed_list import DEFAULT_NTEE_PREFIXES, build_irs_eo_bmf_seed_list
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -28,12 +29,35 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--goodwill-affiliates", action="store_true", help="Build or export the Goodwill affiliate revenue ranking.")
     parser.add_argument("--include-international", action="store_true", help="Include Goodwill Industries International in Goodwill affiliate ranking.")
     parser.add_argument("--min-revenue", type=Decimal, help="Minimum latest revenue for Goodwill affiliate ranking.")
+    parser.add_argument("--build-irs-seed-list", action="store_true", help="Download IRS EO BMF data and build a target EIN seed file.")
+    parser.add_argument("--seed-limit", type=int, default=50000, help="Maximum EINs to write to the IRS seed list.")
+    parser.add_argument("--seed-min-revenue", type=int, default=10000000, help="Minimum EO BMF revenue/income for seed list candidates.")
+    parser.add_argument("--seed-max-revenue", type=int, default=100000000, help="Maximum EO BMF revenue/income for seed list candidates.")
+    parser.add_argument("--seed-regions", default="region 1,region 2,region 3", help="Comma-separated IRS EO BMF regions to download. Default excludes international/other.")
+    parser.add_argument("--seed-ntee-prefixes", default=",".join(DEFAULT_NTEE_PREFIXES), help="Comma-separated NTEE prefixes to include. Empty means all NTEE codes.")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
     settings = load_settings()
+
+    if args.build_irs_seed_list:
+        regions = tuple(item.strip().lower() for item in args.seed_regions.split(",") if item.strip())
+        ntee_prefixes = tuple(item.strip().upper() for item in args.seed_ntee_prefixes.split(",") if item.strip())
+        result = build_irs_eo_bmf_seed_list(
+            settings,
+            limit=args.seed_limit,
+            min_revenue=args.seed_min_revenue,
+            max_revenue=args.seed_max_revenue,
+            ntee_prefixes=ntee_prefixes,
+            regions=regions,
+        )
+        logger.info(
+            "IRS seed list complete",
+            extra={"ein_file": str(result.ein_file), "detail_file": str(result.detail_file), "rows": result.row_count},
+        )
+        return
 
     if args.init_db or args.daily_loss_export:
         logger.info("Initializing database schema")
