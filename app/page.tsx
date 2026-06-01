@@ -858,16 +858,16 @@ function SystemsMappingInput({
         ))}
       </div>
 
-      <div className="grid gap-3 md:grid-cols-2">
-        <label className="grid gap-1.5">
-          <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate">Do these systems share data automatically, manually, or not at all?</span>
+      <div className="grid gap-5 lg:grid-cols-2">
+        <label className="grid min-w-0 gap-3 rounded border border-line bg-panel/40 p-4">
+          <span className="block text-xs font-bold uppercase leading-5 tracking-[0.12em] text-slate">Do these systems share data automatically, manually, or not at all?</span>
           <select value={value.integration || ""} onChange={(event) => onIntegrationChange(event.target.value)} className={`min-h-11 rounded border bg-white px-3 py-2 text-sm font-semibold outline-none focus:ring-4 ${fieldStateClass}`}>
             <option value="">Select a response</option>
             {integrationOptions.map((option) => <option key={option.label} value={option.label}>{option.label}</option>)}
           </select>
         </label>
-        <label className="grid gap-1.5">
-          <span className="text-xs font-bold uppercase tracking-[0.12em] text-slate">How confident are you that leadership can trust reports generated from these systems?</span>
+        <label className="grid min-w-0 gap-3 rounded border border-line bg-panel/40 p-4">
+          <span className="block text-xs font-bold uppercase leading-5 tracking-[0.12em] text-slate">How confident are you that leadership can trust reports generated from these systems?</span>
           <select value={value.reportConfidence || ""} onChange={(event) => onReportConfidenceChange(event.target.value)} className={`min-h-11 rounded border bg-white px-3 py-2 text-sm font-semibold outline-none focus:ring-4 ${fieldStateClass}`}>
             <option value="">Select a response</option>
             {reportingConfidenceOptions.map((option) => <option key={option.label} value={option.label}>{option.label}</option>)}
