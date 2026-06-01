@@ -63,12 +63,28 @@ export async function searchProPublica(input: NonprofitSearchInput) {
   return response.json();
 }
 
+async function fetchProPublicaOrganizationByEin(ein: string) {
+  const normalized = normalizeEin(ein);
+  if (!normalized) return null;
+
+  const response = await fetch(`https://projects.propublica.org/nonprofits/api/v2/organizations/${normalized}.json`, {
+    headers: { "User-Agent": "FitProof Nonprofit Viability Analyzer/1.0" }
+  });
+  if (!response.ok) return null;
+  return response.json();
+}
+
 export async function propublicaService(input: NonprofitSearchInput): Promise<{ sources: SourceDocument[]; financialYears: FinancialYear[] }> {
   const payload = await searchProPublica(input).catch(() => null);
-  const organization = payload ? organizationFromProPublica(payload, input) : null;
-  const apiYears = payload ? financialYearsFromProPublica(payload) : [];
-  const ein = normalizeEin(organization?.ein || input.ein || "");
-  const pageYears = ein ? await financialYearsFromProPublicaPage(ein).catch(() => []) : [];
+  const searchOrganization = payload ? organizationFromProPublica(payload, input) : null;
+  const inferredEin = normalizeEin(searchOrganization?.ein || input.ein || "");
+  const detailPayload = payload?.filings_with_data?.length ? payload : inferredEin ? await fetchProPublicaOrganizationByEin(inferredEin).catch(() => null) : null;
+  const organization = detailPayload ? organizationFromProPublica(detailPayload, input) || searchOrganization : searchOrganization;
+  const searchYears = payload ? financialYearsFromProPublica(payload) : [];
+  const detailYears = detailPayload && detailPayload !== payload ? financialYearsFromProPublica(detailPayload) : [];
+  const financialEin = normalizeEin(organization?.ein || input.ein || inferredEin);
+  const pageYears = financialEin ? await financialYearsFromProPublicaPage(financialEin).catch(() => []) : [];
+  const apiYears = mergeFinancialYears(detailYears, searchYears);
   const financialYears = mergeFinancialYears(pageYears, apiYears);
   return {
     sources: organization?.sources || [],
