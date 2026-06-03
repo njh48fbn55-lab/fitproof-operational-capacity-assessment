@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import logging
 from pathlib import Path
+from typing import Any
 
 import requests
 
@@ -12,20 +13,44 @@ from config import Settings
 logger = logging.getLogger(__name__)
 
 
-def send_export_email(settings: Settings, file_path: Path, export_type: str, row_count: int) -> bool:
+def send_export_email(
+    settings: Settings,
+    file_path: Path,
+    export_type: str,
+    row_count: int,
+    export_scope: str = "newly qualified",
+    run_summary: dict[str, Any] | None = None,
+) -> bool:
     if not settings.resend_api_key:
         logger.warning("Lead export email skipped because RESEND_API_KEY is not configured")
         return False
 
     attachment_content = base64.b64encode(file_path.read_bytes()).decode("ascii")
     subject = f"FitProof Nonprofit Loss Leads Export: {file_path.name}"
-    body = (
-        f"Your FitProof nonprofit loss lead export is attached.\n\n"
-        f"Export type: {export_type}\n"
-        f"Rows: {row_count}\n"
-        f"File: {file_path.name}\n\n"
-        "This is an internal FitProof lead-discovery export."
-    )
+    body_lines = [
+        "Your FitProof nonprofit loss lead export is attached.",
+        "",
+        f"Export type: {export_type}",
+        f"Export scope: {export_scope}",
+        f"Rows: {row_count}",
+        f"File: {file_path.name}",
+    ]
+    if run_summary:
+        body_lines.extend(
+            [
+                "",
+                "Discovery run summary:",
+                f"Source: {run_summary.get('source')}",
+                f"Candidates found: {run_summary.get('candidates', 0)}",
+                f"Already scored and skipped: {run_summary.get('skipped_existing', 0)}",
+                f"Processed: {run_summary.get('processed', 0)}",
+                f"Failed: {run_summary.get('failed', 0)}",
+            ]
+        )
+        if run_summary.get("seed_file"):
+            body_lines.append(f"Seed file: {run_summary['seed_file']}")
+    body_lines.extend(["", "This is an internal FitProof lead-discovery export."])
+    body = "\n".join(body_lines)
 
     response = requests.post(
         "https://api.resend.com/emails",

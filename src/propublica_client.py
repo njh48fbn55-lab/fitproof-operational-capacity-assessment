@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import Any
 
 import requests
+from requests import HTTPError
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from config import Settings, normalize_ein
@@ -51,11 +52,17 @@ class ProPublicaClient:
         results: list[dict[str, Any]] = []
         page = 0
         while True:
-            data = self._get("/search.json", params={"q": query, "page": page})
+            try:
+                data = self._get("/search.json", params={"q": query, "page": page})
+            except HTTPError as exc:
+                if exc.response is not None and exc.response.status_code == 400 and page > 0:
+                    logger.warning("Stopping ProPublica search at rejected page", extra={"query": query, "page": page})
+                    break
+                raise
             organizations = data.get("organizations") or []
             results.extend(organizations)
             num_pages = int(data.get("num_pages") or 0)
-            if page >= num_pages or not organizations:
+            if page >= num_pages - 1 or not organizations:
                 break
             page += 1
         return results

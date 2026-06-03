@@ -82,6 +82,14 @@ Run the ProPublica MVP ETL:
 python src/main.py --source propublica --limit 1000
 ```
 
+Run the daily lead-discovery agent:
+
+```bash
+python src/main.py --daily-loss-export --source propublica --limit 1000 --daily-export-all-on-empty
+```
+
+The daily agent skips EINs that have already been scored, searches for new candidates, exports newly qualified leads, and includes a discovery summary in the email. If no newly qualified rows are found, `--daily-export-all-on-empty` sends all currently qualified leads instead of an empty CSV.
+
 Export qualifying nonprofit names only:
 
 ```bash
@@ -155,6 +163,7 @@ ProPublica works well for organization lookup and search, but it is not a comple
 - `LEAD_DISCOVERY_SEARCH_TERMS`
 - `LEAD_DISCOVERY_SEED_EINS`
 - `LEAD_DISCOVERY_SEED_EIN_FILE`
+- `LEAD_DISCOVERY_AUTO_BUILD_SEED_LIST`
 
 For broader coverage, add a seed EIN file from IRS bulk indexes or targeted nonprofit categories, then run the ETL against those EINs.
 
@@ -163,6 +172,8 @@ Example:
 ```bash
 LEAD_DISCOVERY_SEED_EIN_FILE=/var/www/fitproof-operational-capacity-assessment/data/seed-eins.txt
 ```
+
+When `LEAD_DISCOVERY_AUTO_BUILD_SEED_LIST=true` and no explicit seed list is configured, the daily agent reuses the newest generated IRS EO BMF seed file or builds one before running ProPublica discovery. This helps the agent keep expanding beyond the fixed search terms.
 
 ## IRS Bulk Validation
 
@@ -306,15 +317,15 @@ crontab -e
 Add this nightly job:
 
 ```cron
-15 2 * * * cd /var/www/fitproof-operational-capacity-assessment && . .venv/bin/activate && python3 src/main.py --daily-loss-export --source propublica --limit 5000 --export full >> /var/log/fitproof-lead-discovery.log 2>&1
+15 2 * * * cd /var/www/fitproof-operational-capacity-assessment && . .venv/bin/activate && python3 src/main.py --daily-loss-export --source propublica --limit 5000 --export full --daily-export-all-on-empty >> /var/log/fitproof-lead-discovery.log 2>&1
 ```
 
-This single command initializes the tables, refreshes nonprofit loss leads, creates the CSV, and emails it to `LEAD_EXPORT_EMAIL_TO`.
+This single command initializes the tables, refreshes nonprofit loss leads, creates the CSV, and emails it to `LEAD_EXPORT_EMAIL_TO`. The email includes a discovery summary so you can see whether the agent found candidates, skipped already-scored EINs, processed records, or hit failures.
 
 If you have a local IRS TEOS/Form 990 bulk file configured with `IRS_BULK_LOCAL_PATH`, you can run the daily job from that file instead:
 
 ```cron
-15 2 * * * cd /var/www/fitproof-operational-capacity-assessment && . .venv/bin/activate && python3 src/main.py --daily-loss-export --source irs --limit 5000 --export full >> /var/log/fitproof-lead-discovery.log 2>&1
+15 2 * * * cd /var/www/fitproof-operational-capacity-assessment && . .venv/bin/activate && python3 src/main.py --daily-loss-export --source irs --limit 5000 --export full --daily-export-all-on-empty >> /var/log/fitproof-lead-discovery.log 2>&1
 ```
 
 Go back to your Mac:
@@ -339,7 +350,7 @@ python3 src/main.py --build-irs-seed-list --seed-limit 50000
 
 By default this pulls the three domestic regional IRS files, keeps 501(c)(3) organizations, filters to roughly $10M-$100M revenue/income, and favors nonprofit NTEE categories relevant to FitProof targets such as health, human services, employment, housing, food, mental health, community improvement, and nonprofit infrastructure.
 
-Then set the generated file in `.env.local`:
+Then set the generated file in `.env.local`, or leave `LEAD_DISCOVERY_AUTO_BUILD_SEED_LIST=true` and let the daily agent reuse the newest generated seed file automatically:
 
 ```bash
 LEAD_DISCOVERY_SEED_EIN_FILE=/var/www/fitproof-operational-capacity-assessment/seeds/irs-eo-bmf-seed-eins-YYYY-MM-DD.txt

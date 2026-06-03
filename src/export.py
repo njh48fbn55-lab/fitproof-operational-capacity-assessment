@@ -14,8 +14,19 @@ NAMES_ONLY_COLUMNS = ["nonprofit_name"]
 FULL_COLUMNS = ["nonprofit_name", "ein", "state", "latest_revenue", "latest_expenses", "latest_deficit", "priority_score"]
 
 
-def export_leads(conn, settings: Settings, export_type: str, scored_since: datetime | None = None) -> Path:
+def export_leads(
+    conn,
+    settings: Settings,
+    export_type: str,
+    scored_since: datetime | None = None,
+    fallback_to_all: bool = False,
+    run_summary: dict[str, Any] | None = None,
+) -> Path:
     rows = qualifying_leads(conn, scored_since=scored_since)
+    export_scope = "newly qualified"
+    if not rows and scored_since is not None and fallback_to_all:
+        rows = qualifying_leads(conn)
+        export_scope = "all currently qualified"
     settings.export_dir.mkdir(parents=True, exist_ok=True)
     file_path = settings.export_dir / f"fitproof_nonprofit_loss_leads_{date.today().isoformat()}.csv"
     columns = NAMES_ONLY_COLUMNS if export_type == "names-only" else FULL_COLUMNS
@@ -28,5 +39,5 @@ def export_leads(conn, settings: Settings, export_type: str, scored_since: datet
 
     insert_export_run(conn, export_type, file_path, len(rows))
     conn.commit()
-    send_export_email(settings, file_path, export_type, len(rows))
+    send_export_email(settings, file_path, export_type, len(rows), export_scope=export_scope, run_summary=run_summary)
     return file_path

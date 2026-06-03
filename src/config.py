@@ -26,6 +26,7 @@ class Settings:
     search_terms: list[str]
     seed_eins: list[str]
     seed_ein_file: str | None
+    auto_build_seed_list: bool
     export_dir: Path
     requests_per_second: float
     http_timeout_seconds: int
@@ -53,6 +54,7 @@ def load_settings() -> Settings:
         search_terms=_csv(os.getenv("LEAD_DISCOVERY_SEARCH_TERMS")),
         seed_eins=_csv(os.getenv("LEAD_DISCOVERY_SEED_EINS")),
         seed_ein_file=os.getenv("LEAD_DISCOVERY_SEED_EIN_FILE") or None,
+        auto_build_seed_list=os.getenv("LEAD_DISCOVERY_AUTO_BUILD_SEED_LIST", "true").lower() in {"1", "true", "yes", "on"},
         export_dir=ROOT_DIR / os.getenv("EXPORT_DIR", "exports"),
         requests_per_second=float(os.getenv("REQUESTS_PER_SECOND", "2")),
         http_timeout_seconds=int(os.getenv("HTTP_TIMEOUT_SECONDS", "30")),
